@@ -24,14 +24,14 @@ import org.apache.hadoop.fs.Path
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.catalyst.InternalRow
 
-object Spark2ParsePartitionUtil extends SparkParsePartitionUtil {
+class Spark2ParsePartitionUtil extends SparkParsePartitionUtil {
 
-  override def parsePartition(path: Path,
-                              typeInference: Boolean,
-                              basePaths: Set[Path],
-                              userSpecifiedDataTypes: Map[String, DataType],
-                              timeZone: TimeZone,
-                              validatePartitionValues: Boolean = false): InternalRow = {
+  override def parsePartition(
+      path: Path,
+      typeInference: Boolean,
+      basePaths: Set[Path],
+      userSpecifiedDataTypes: Map[String, DataType],
+      timeZone: TimeZone): InternalRow = {
     val (partitionValues, _) = PartitioningUtils.parsePartition(path, typeInference,
       basePaths, userSpecifiedDataTypes, timeZone)
 

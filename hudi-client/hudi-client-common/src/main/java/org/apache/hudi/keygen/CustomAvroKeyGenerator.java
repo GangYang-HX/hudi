@@ -103,13 +103,13 @@ public class CustomAvroKeyGenerator extends BaseKeyGenerator {
   @Override
   public String getRecordKey(GenericRecord record) {
     validateRecordKeyFields();
-    return getRecordKeyFieldNames().size() == 1
+    return getRecordKeyFields().size() == 1
         ? new SimpleAvroKeyGenerator(config).getRecordKey(record)
         : new ComplexAvroKeyGenerator(config).getRecordKey(record);
   }
 
   private void validateRecordKeyFields() {
-    if (getRecordKeyFieldNames() == null || getRecordKeyFieldNames().isEmpty()) {
+    if (getRecordKeyFields() == null || getRecordKeyFields().isEmpty()) {
       throw new HoodieKeyException("Unable to find field names for record key in cfg");
     }
   }

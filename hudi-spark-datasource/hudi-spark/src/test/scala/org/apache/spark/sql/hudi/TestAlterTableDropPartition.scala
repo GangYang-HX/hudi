@@ -18,13 +18,12 @@
 package org.apache.spark.sql.hudi
 
 import org.apache.hudi.DataSourceWriteOptions._
-import org.apache.hudi.HoodieSparkUtils
 import org.apache.hudi.common.util.PartitionPathEncodeUtils
 import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.keygen.{ComplexKeyGenerator, SimpleKeyGenerator}
 import org.apache.spark.sql.SaveMode
 
-class TestAlterTableDropPartition extends HoodieSparkSqlTestBase {
+class TestAlterTableDropPartition extends TestHoodieSqlBase {
 
   test("Drop non-partitioned table") {
     val tableName = generateTableName
@@ -211,14 +210,8 @@ class TestAlterTableDropPartition extends HoodieSparkSqlTestBase {
     spark.sql(s"""insert into $tableName values (1, "z3", "v1", "2021-10-01"), (2, "l4", "v1", "2021-10-02")""")
 
     // specify duplicate partition columns
-    if (HoodieSparkUtils.gteqSpark3_3) {
-      checkExceptionContain(s"alter table $tableName drop partition (dt='2021-10-01', dt='2021-10-02')")(
-        "Found duplicate keys `dt`")
-    } else {
-      checkExceptionContain(s"alter table $tableName drop partition (dt='2021-10-01', dt='2021-10-02')")(
-        "Found duplicate keys 'dt'")
-    }
-
+    checkExceptionContain(s"alter table $tableName drop partition (dt='2021-10-01', dt='2021-10-02')")(
+      "Found duplicate keys 'dt'")
 
     // drop 2021-10-01 partition
     spark.sql(s"alter table $tableName drop partition (dt='2021-10-01')")

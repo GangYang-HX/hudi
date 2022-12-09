@@ -21,23 +21,22 @@
   <parent>
     <artifactId>hudi</artifactId>
     <groupId>org.apache.hudi</groupId>
-    <version>0.13.0-SNAPSHOT</version>
+    <version>0.11.0.1-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
-  <artifactId>hudi-flink${flink.bundle.version}-bundle</artifactId>
+  <artifactId>hudi-flink${flink.bundle.version}-bundle_${scala12.binary.version}</artifactId>
   <packaging>jar</packaging>
 
   <properties>
     <checkstyle.skip>true</checkstyle.skip>
     <main.basedir>${project.parent.basedir}</main.basedir>
-    <skipTests>true</skipTests>
-    <flink.bundle.hive.scope>provided</flink.bundle.hive.scope>
+    <flink.bundle.hive.scope>compile</flink.bundle.hive.scope>
     <flink.bundle.shade.prefix>org.apache.hudi.</flink.bundle.shade.prefix>
     <javax.servlet.version>3.1.0</javax.servlet.version>
     <!-- override to be same with flink 1.15.x -->
     <parquet.version>${flink.format.parquet.version}</parquet.version>
-    <hive.version>2.3.1</hive.version>
+    <hive.version>2.3.4.3-bili-SNAPSHOT</hive.version>
     <thrift.version>0.9.3</thrift.version>
   </properties>
 
@@ -74,11 +73,12 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
               </transformers>
               <artifactSet>
-                <includes combine.children="append">
+                <includes>
                   <include>org.apache.hudi:hudi-common</include>
                   <include>org.apache.hudi:hudi-client-common</include>
                   <include>org.apache.hudi:hudi-flink-client</include>
                   <include>org.apache.hudi:hudi-flink</include>
+                  <include>org.apache.hudi:hudi-flink-bilibili</include>
                   <include>org.apache.hudi:${hudi.flink.module}</include>
                   <include>org.apache.hudi:hudi-hive-sync</include>
                   <include>org.apache.hudi:hudi-sync-common</include>
@@ -91,6 +91,9 @@
                   <include>io.javalin:javalin</include>
                   <include>org.jetbrains.kotlin:*</include>
                   <include>org.rocksdb:rocksdbjni</include>
+                  <include>org.apache.httpcomponents:httpclient</include>
+                  <include>org.apache.httpcomponents:httpcore</include>
+                  <include>org.apache.httpcomponents:fluent-hc</include>
                   <include>org.antlr:stringtemplate</include>
                   <!-- Parquet -->
                   <include>org.apache.parquet:parquet-avro</include>
@@ -107,12 +110,10 @@
                   <include>com.fasterxml.jackson.core:jackson-databind</include>
                   <include>com.fasterxml.jackson.core:jackson-core</include>
 
-                  <include>com.lmax:disruptor</include>
                   <include>com.github.davidmoten:guava-mini</include>
                   <include>com.github.davidmoten:hilbert-curve</include>
-                  <include>com.github.ben-manes.caffeine:caffeine</include>
-                  <include>com.twitter:bijection-avro_${scala.binary.version}</include>
-                  <include>com.twitter:bijection-core_${scala.binary.version}</include>
+                  <include>com.twitter:bijection-avro_${scala12.binary.version}</include>
+                  <include>com.twitter:bijection-core_${scala12.binary.version}</include>
                   <include>io.dropwizard.metrics:metrics-core</include>
                   <include>io.dropwizard.metrics:metrics-graphite</include>
                   <include>io.dropwizard.metrics:metrics-jmx</include>
@@ -121,15 +122,26 @@
                   <include>io.prometheus:simpleclient_dropwizard</include>
                   <include>io.prometheus:simpleclient_pushgateway</include>
                   <include>io.prometheus:simpleclient_common</include>
+                  <include>com.yammer.metrics:metrics-core</include>
 
                   <!-- Used for HUDI TimelineService -->
                   <include>org.eclipse.jetty:*</include>
                   <include>org.eclipse.jetty.websocket:*</include>
                   <include>javax.servlet:javax.servlet-api</include>
 
-                  <include>org.apache.flink:${flink.hadoop.compatibility.artifactId}</include>
+                  <!-- Used for HUDI write handle -->
+                  <inclide>com.esotericsoftware:kryo-shaded</inclide>
+
+                  <include>org.apache.flink:flink-hadoop-compatibility_${scala12.binary.version}</include>
                   <include>org.apache.flink:flink-json</include>
-                  <include>org.apache.flink:${flink.parquet.artifactId}</include>
+                  <include>org.apache.flink:flink-parquet</include>
+                  <include>org.apache.flink:flink-metrics-dropwizard</include>
+                  <include>org.apache.flink:flink-bilibili-external-archer</include>
+                  <include>com.github.rholder:guava-retrying</include>
+                  <include>com.google.guava:guava</include>
+                  <include>net.dongliu:requests</include>
+                  <include>net.dongliu:commons</include>
+                  <include>com.alibaba:fastjson</include>
 
                   <include>org.apache.hive:hive-common</include>
                   <include>org.apache.hive:hive-service</include>
@@ -149,7 +161,6 @@
                   <include>org.apache.hbase:hbase-hadoop2-compat</include>
                   <include>org.apache.hbase:hbase-metrics</include>
                   <include>org.apache.hbase:hbase-metrics-api</include>
-                  <include>org.apache.hbase:hbase-protocol</include>
                   <include>org.apache.hbase:hbase-protocol-shaded</include>
                   <include>org.apache.hbase:hbase-server</include>
                   <include>org.apache.hbase.thirdparty:hbase-shaded-miscellaneous</include>
@@ -158,10 +169,9 @@
                   <include>org.apache.htrace:htrace-core4</include>
                   <include>commons-codec:commons-codec</include>
                   <include>commons-io:commons-io</include>
-                  <include>org.openjdk.jol:jol-core</include>
                 </includes>
               </artifactSet>
-              <relocations combine.children="append">
+              <relocations>
                 <relocation>
                   <pattern>javax.servlet.</pattern>
                   <shadedPattern>${flink.bundle.shade.prefix}javax.servlet.</shadedPattern>
@@ -210,12 +220,29 @@
                   <shadedPattern>${flink.bundle.shade.prefix}org.apache.jetty.</shadedPattern>
                 </relocation>
                 <relocation>
-                  <pattern>com.fasterxml.jackson.</pattern>
-                  <shadedPattern>${flink.bundle.shade.prefix}com.fasterxml.jackson.</shadedPattern>
+                  <pattern>org.apache.flink.bili.external.archer.</pattern>
+                  <shadedPattern>${flink.bundle.shade.prefix}org.apache.flink.bili.external.archer.</shadedPattern>
                 </relocation>
                 <relocation>
-                  <pattern>org.openjdk.jol.</pattern>
-                  <shadedPattern>org.apache.hudi.org.openjdk.jol.</shadedPattern>
+                  <pattern>com.google.common.util.concurrent.</pattern>
+                  <shadedPattern>${flink.bundle.shade.prefix}com.google.common.util.concurrent.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.github.rholder.retry.</pattern>
+                  <shadedPattern>${flink.bundle.shade.prefix}com.github.rholder.retry.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.alibaba.fastjson.</pattern>
+                  <shadedPattern>${flink.bundle.shade.prefix}com.alibaba.fastjson.</shadedPattern>
+                </relocation>
+                <!-- Shade kryo-shaded because it may conflict with kryo used by flink -->
+                <relocation>
+                  <pattern>com.esotericsoftware.kryo.</pattern>
+                  <shadedPattern>${flink.bundle.shade.prefix}com.esotericsoftware.kryo.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.fasterxml.jackson.</pattern>
+                  <shadedPattern>${flink.bundle.shade.prefix}com.fasterxml.jackson.</shadedPattern>
                 </relocation>
                 <!-- The classes below in org.apache.hadoop.metrics2 package come from
                 hbase-hadoop-compat and hbase-hadoop2-compat, which have to be shaded one by one,
@@ -290,6 +317,7 @@
                 <filter>
                   <artifact>*:*</artifact>
                   <excludes>
+                    <excldue>org/apache/flink/formats/json/bilicanal/**</excldue>
                     <exclude>META-INF/*.SF</exclude>
                     <exclude>META-INF/*.DSA</exclude>
                     <exclude>META-INF/*.RSA</exclude>
@@ -345,11 +373,6 @@
     </dependency>
     <dependency>
       <groupId>org.apache.hudi</groupId>
-      <artifactId>hudi-aws</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.hudi</groupId>
       <artifactId>hudi-flink-client</artifactId>
       <version>${project.version}</version>
     </dependency>
@@ -362,6 +385,17 @@
       <groupId>org.apache.hudi</groupId>
       <artifactId>hudi-flink</artifactId>
       <version>${project.version}</version>
+      <exclusions>
+        <exclusion>
+          <artifactId>guava</artifactId>
+          <groupId>com.google.guava</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hudi</groupId>
+      <artifactId>hudi-flink-bilibili</artifactId>
+      <version>0.11.0.1-SNAPSHOT</version>
       <exclusions>
         <exclusion>
           <artifactId>guava</artifactId>
@@ -415,13 +449,13 @@
     <!-- Flink -->
     <dependency>
       <groupId>org.apache.flink</groupId>
-      <artifactId>${flink.hadoop.compatibility.artifactId}</artifactId>
+      <artifactId>flink-hadoop-compatibility_${scala12.binary.version}</artifactId>
       <version>${flink.version}</version>
       <scope>compile</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.flink</groupId>
-      <artifactId>${flink.parquet.artifactId}</artifactId>
+      <artifactId>flink-parquet</artifactId>
       <version>${flink.version}</version>
       <scope>compile</scope>
     </dependency>
@@ -519,6 +553,10 @@
         <exclusion>
           <groupId>org.pentaho</groupId>
           <artifactId>*</artifactId>
+        </exclusion>
+        <exclusion>
+          <artifactId>servlet-api</artifactId>
+          <groupId>javax.servlet</groupId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -635,11 +673,19 @@
       <scope>${flink.bundle.hive.scope}</scope>
     </dependency>
 
+    <!-- kryo -->
+    <dependency>
+      <groupId>com.esotericsoftware</groupId>
+      <artifactId>kryo-shaded</artifactId>
+      <version>4.0.2</version>
+    </dependency>
+
     <!-- ORC -->
     <dependency>
       <groupId>org.apache.orc</groupId>
       <artifactId>orc-core</artifactId>
-      <version>${orc.flink.version}</version>
+      <version>${orc.version}</version>
+      <classifier>nohive</classifier>
       <scope>${flink.bundle.hive.scope}</scope>
     </dependency>
 
@@ -658,6 +704,12 @@
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-annotations</artifactId>
       <scope>compile</scope>
+    </dependency>
+    <!-- guava -->
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>11.0.2</version>
     </dependency>
   </dependencies>
 

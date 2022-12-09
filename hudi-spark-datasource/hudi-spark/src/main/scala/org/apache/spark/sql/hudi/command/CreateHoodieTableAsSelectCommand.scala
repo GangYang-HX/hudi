@@ -20,15 +20,14 @@ package org.apache.spark.sql.hudi.command
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.hudi.DataSourceWriteOptions
-import org.apache.hudi.common.util.ValidationUtils.checkState
-import org.apache.hudi.hive.HiveSyncConfigHolder
+import org.apache.hudi.hive.HiveSyncConfig
+import org.apache.hudi.hive.util.ConfigUtils
 import org.apache.hudi.sql.InsertMode
-import org.apache.hudi.sync.common.util.ConfigUtils
-import org.apache.spark.sql.catalyst.catalog.HoodieCatalogTable.needFilterProps
 import org.apache.spark.sql.catalyst.catalog.{CatalogTable, CatalogTableType, HoodieCatalogTable}
 import org.apache.spark.sql.catalyst.plans.QueryPlan
-import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
-import org.apache.spark.sql.{AnalysisException, Row, SaveMode, SparkSession}
+import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, Project}
+import org.apache.spark.sql.hudi.HoodieSqlCommonUtils
+import org.apache.spark.sql.{Row, SaveMode, SparkSession}
 
 import scala.collection.JavaConverters._
 
@@ -42,27 +41,21 @@ case class CreateHoodieTableAsSelectCommand(
   override def innerChildren: Seq[QueryPlan[_]] = Seq(query)
 
   override def run(sparkSession: SparkSession): Seq[Row] = {
-    checkState(table.tableType != CatalogTableType.VIEW)
-    checkState(table.provider.isDefined)
-
-    val hasQueryAsProp = (table.storage.properties ++ table.properties).contains(ConfigUtils.IS_QUERY_AS_RO_TABLE)
-    if (hasQueryAsProp) {
-      throw new AnalysisException("Not support CTAS for the ro/rt table")
-    }
+    assert(table.tableType != CatalogTableType.VIEW)
+    assert(table.provider.isDefined)
 
     val sessionState = sparkSession.sessionState
     val db = table.identifier.database.getOrElse(sessionState.catalog.getCurrentDatabase)
-    val qualifiedTableIdentifier = table.identifier.copy(database = Some(db))
-    val tableName = qualifiedTableIdentifier.unquotedString
+    val tableIdentWithDB = table.identifier.copy(database = Some(db))
+    val tableName = tableIdentWithDB.unquotedString
 
-    if (sessionState.catalog.tableExists(qualifiedTableIdentifier)) {
-      checkState(mode != SaveMode.Overwrite,
+    if (sessionState.catalog.tableExists(tableIdentWithDB)) {
+      assert(mode != SaveMode.Overwrite,
         s"Expect the table $tableName has been dropped when the save mode is Overwrite")
 
       if (mode == SaveMode.ErrorIfExists) {
-        throw new AnalysisException(s"Table $tableName already exists. You need to drop it first.")
+        throw new RuntimeException(s"Table $tableName already exists. You need to drop it first.")
       }
-
       if (mode == SaveMode.Ignore) {
         // Since the table already exists and the save mode is Ignore, we will just return.
         // scalastyle:off
@@ -71,44 +64,35 @@ case class CreateHoodieTableAsSelectCommand(
       }
     }
 
-    // Remove some properties should not be used
-    val updatedStorageFormat = table.storage.copy(
-      properties = table.storage.properties -- needFilterProps)
+    // ReOrder the query which move the partition columns to the last of the project list
+    val reOrderedQuery = reOrderPartitionColumn(query, table.partitionColumnNames)
+    val tableWithSchema = table.copy(schema = reOrderedQuery.schema)
 
-    val updatedTable = table.copy(
-      identifier = qualifiedTableIdentifier,
-      storage = updatedStorageFormat,
-      // TODO need to add meta-fields here
-      schema = query.schema,
-      properties = table.properties -- needFilterProps
-    )
-
-    val hoodieCatalogTable = HoodieCatalogTable(sparkSession, updatedTable)
+    val hoodieCatalogTable = HoodieCatalogTable(sparkSession, tableWithSchema)
     val tablePath = hoodieCatalogTable.tableLocation
     val hadoopConf = sparkSession.sessionState.newHadoopConf()
+    assert(HoodieSqlCommonUtils.isEmptyPath(tablePath, hadoopConf),
+      s"Path '$tablePath' should be empty for CTAS")
 
+    // Execute the insert query
     try {
-      // Init hoodie table
+      // init hoodie table
       hoodieCatalogTable.initHoodieTable()
 
-      val tableProperties = hoodieCatalogTable.catalogProperties
-      // NOTE: Users might be specifying write-configuration (inadvertently) as options or table properties
-      //       in CTAS, therefore we need to make sure that these are appropriately propagated to the
-      //       write operation
-      val options = tableProperties ++ Map(
-        HiveSyncConfigHolder.HIVE_CREATE_MANAGED_TABLE.key -> (table.tableType == CatalogTableType.MANAGED).toString,
-        HiveSyncConfigHolder.HIVE_TABLE_SERDE_PROPERTIES.key -> ConfigUtils.configToString(tableProperties.asJava),
-        HiveSyncConfigHolder.HIVE_TABLE_PROPERTIES.key -> ConfigUtils.configToString(updatedTable.properties.asJava),
+      val tblProperties = hoodieCatalogTable.catalogProperties
+      val options = Map(
+        HiveSyncConfig.HIVE_CREATE_MANAGED_TABLE.key -> (table.tableType == CatalogTableType.MANAGED).toString,
+        HiveSyncConfig.HIVE_TABLE_SERDE_PROPERTIES.key -> ConfigUtils.configToString(tblProperties.asJava),
+        HiveSyncConfig.HIVE_TABLE_PROPERTIES.key -> ConfigUtils.configToString(table.properties.asJava),
         DataSourceWriteOptions.SQL_INSERT_MODE.key -> InsertMode.NON_STRICT.value(),
         DataSourceWriteOptions.SQL_ENABLE_BULK_INSERT.key -> "true"
       )
-      val partitionSpec = updatedTable.partitionColumnNames.map((_, None)).toMap
-      val success = InsertIntoHoodieTableCommand.run(sparkSession, updatedTable, query, partitionSpec,
+      val success = InsertIntoHoodieTableCommand.run(sparkSession, tableWithSchema, reOrderedQuery, Map.empty,
         mode == SaveMode.Overwrite, refreshTable = false, extraOptions = options)
       if (success) {
         // If write success, create the table in catalog if it has not synced to the
         // catalog by the meta sync.
-        if (!sparkSession.sessionState.catalog.tableExists(qualifiedTableIdentifier)) {
+        if (!sparkSession.sessionState.catalog.tableExists(tableIdentWithDB)) {
           // create catalog table for this hoodie table
           CreateHoodieTableCommand.createTableInCatalog(sparkSession, hoodieCatalogTable, mode == SaveMode.Ignore)
         }
@@ -127,5 +111,17 @@ case class CreateHoodieTableAsSelectCommand(
     val path = new Path(tablePath)
     val fs = path.getFileSystem(conf)
     fs.delete(path, true)
+  }
+
+  private def reOrderPartitionColumn(query: LogicalPlan,
+    partitionColumns: Seq[String]): LogicalPlan = {
+    if (partitionColumns.isEmpty) {
+      query
+    } else {
+      val nonPartitionAttrs = query.output.filter(p => !partitionColumns.contains(p.name))
+      val partitionAttrs = query.output.filter(p => partitionColumns.contains(p.name))
+      val reorderAttrs = nonPartitionAttrs ++ partitionAttrs
+      Project(reorderAttrs, query)
+    }
   }
 }

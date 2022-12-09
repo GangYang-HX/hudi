@@ -18,14 +18,12 @@
 
 package org.apache.hudi.common.util;
 
-import java.io.Serializable;
-
 /**
  * Default implementation of size-estimator that uses Twitter's ObjectSizeCalculator.
  * 
  * @param <T>
  */
-public class DefaultSizeEstimator<T> implements SizeEstimator<T>, Serializable {
+public class DefaultSizeEstimator<T> implements SizeEstimator<T> {
 
   @Override
   public long sizeEstimate(T t) {

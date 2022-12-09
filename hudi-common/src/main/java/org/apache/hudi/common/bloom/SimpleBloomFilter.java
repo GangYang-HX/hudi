@@ -77,15 +77,10 @@ public class SimpleBloomFilter implements BloomFilter {
 
   @Override
   public void add(String key) {
-    add(key.getBytes(StandardCharsets.UTF_8));
-  }
-
-  @Override
-  public void add(byte[] keyBytes) {
-    if (keyBytes == null) {
+    if (key == null) {
       throw new NullPointerException("Key cannot be null");
     }
-    filter.add(new Key(keyBytes));
+    filter.add(new Key(key.getBytes(StandardCharsets.UTF_8)));
   }
 
   @Override

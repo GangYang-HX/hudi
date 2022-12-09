@@ -42,13 +42,11 @@ import static org.apache.hudi.testutils.Assertions.assertNoWriteErrors;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@SuppressWarnings("unchecked")
 /**
  * Test-cases for covering HoodieReadClient APIs
  */
-@SuppressWarnings("unchecked")
 public class TestHoodieReadClient extends HoodieClientTestBase {
-
-  private static final int PARALLELISM = 2;
 
   /**
    * Test ReadFilter API after writing new records using HoodieWriteClient.insert.
@@ -80,13 +78,15 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
   @Test
   public void testReadFilterExistAfterBulkInsertPrepped() throws Exception {
     testReadFilterExist(getConfigBuilder().withBulkInsertParallelism(1).build(),
-        (writeClient, recordRDD, instantTime) -> writeClient.bulkInsertPreppedRecords(recordRDD, instantTime, Option.empty()));
+        (writeClient, recordRDD, instantTime) -> {
+          return writeClient.bulkInsertPreppedRecords(recordRDD, instantTime, Option.empty());
+        });
   }
 
   @Test
   public void testReadROViewFailsWithoutSqlContext() {
-    SparkRDDReadClient readClient = new SparkRDDReadClient(context, getConfig());
-    JavaRDD<HoodieKey> recordsRDD = jsc.parallelize(new ArrayList<>(), PARALLELISM);
+    HoodieReadClient readClient = new HoodieReadClient(context, getConfig());
+    JavaRDD<HoodieKey> recordsRDD = jsc.parallelize(new ArrayList<>(), 1);
     assertThrows(IllegalStateException.class, () -> {
       readClient.readROView(recordsRDD, 1);
     });
@@ -102,24 +102,24 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
    */
   private void testReadFilterExist(HoodieWriteConfig config,
       Function3<JavaRDD<WriteStatus>, SparkRDDWriteClient, JavaRDD<HoodieRecord>, String> writeFn) throws Exception {
-    try (SparkRDDWriteClient writeClient = getHoodieWriteClient(config)) {
-      SparkRDDReadClient readClient = getHoodieReadClient(config.getBasePath());
+    try (SparkRDDWriteClient writeClient = getHoodieWriteClient(config);) {
+      HoodieReadClient readClient = getHoodieReadClient(config.getBasePath());
       String newCommitTime = writeClient.startCommit();
       List<HoodieRecord> records = dataGen.generateInserts(newCommitTime, 100);
-      JavaRDD<HoodieRecord> recordsRDD = jsc.parallelize(records, PARALLELISM);
+      JavaRDD<HoodieRecord> recordsRDD = jsc.parallelize(records, 1);
 
       JavaRDD<HoodieRecord> filteredRDD = readClient.filterExists(recordsRDD);
 
       // Should not find any files
       assertEquals(100, filteredRDD.collect().size());
 
-      JavaRDD<HoodieRecord> smallRecordsRDD = jsc.parallelize(records.subList(0, 75), PARALLELISM);
+      JavaRDD<HoodieRecord> smallRecordsRDD = jsc.parallelize(records.subList(0, 75), 1);
       // We create three base file, each having one record. (3 different partitions)
       List<WriteStatus> statuses = writeFn.apply(writeClient, smallRecordsRDD, newCommitTime).collect();
       // Verify there are no errors
       assertNoWriteErrors(statuses);
 
-      SparkRDDReadClient anotherReadClient = getHoodieReadClient(config.getBasePath());
+      HoodieReadClient anotherReadClient = getHoodieReadClient(config.getBasePath());
       filteredRDD = anotherReadClient.filterExists(recordsRDD);
       List<HoodieRecord> result = filteredRDD.collect();
       // Check results
@@ -133,14 +133,14 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
       assertEquals(75, keysWithPaths.count());
 
       // verify rows match inserted records
-      Dataset<Row> rows = anotherReadClient.readROView(keysWithPaths, PARALLELISM);
+      Dataset<Row> rows = anotherReadClient.readROView(keysWithPaths, 1);
       assertEquals(75, rows.count());
 
       JavaRDD<HoodieKey> keysWithoutPaths = keyToPathPair.filter(keyPath -> !keyPath._2.isPresent())
           .map(keyPath -> keyPath._1);
 
       assertThrows(AnalysisException.class, () -> {
-        anotherReadClient.readROView(keysWithoutPaths, PARALLELISM);
+        anotherReadClient.readROView(keysWithoutPaths, 1);
       });
 
       // Actual tests of getPendingCompactions method are in TestAsyncCompaction
@@ -171,7 +171,7 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
    */
   @Test
   public void testTagLocationAfterBulkInsert() throws Exception {
-    testTagLocation(getConfigBuilder().withBulkInsertParallelism(PARALLELISM).build(), SparkRDDWriteClient::bulkInsert,
+    testTagLocation(getConfigBuilder().withBulkInsertParallelism(1).build(), SparkRDDWriteClient::bulkInsert,
         SparkRDDWriteClient::upsert, false);
   }
 
@@ -181,7 +181,7 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
   @Test
   public void testTagLocationAfterBulkInsertPrepped() throws Exception {
     testTagLocation(
-        getConfigBuilder().withBulkInsertParallelism(PARALLELISM).build(), (writeClient, recordRDD, instantTime) -> writeClient
+        getConfigBuilder().withBulkInsertParallelism(1).build(), (writeClient, recordRDD, instantTime) -> writeClient
             .bulkInsertPreppedRecords(recordRDD, instantTime, Option.empty()),
         SparkRDDWriteClient::upsertPreppedRecords, true);
   }
@@ -210,9 +210,9 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
       // since they have been modified in the DAG
       JavaRDD<HoodieRecord> recordRDD =
           jsc.parallelize(result.collect().stream().map(WriteStatus::getWrittenRecords).flatMap(Collection::stream)
-              .map(record -> new HoodieAvroRecord(record.getKey(), null)).collect(Collectors.toList()), PARALLELISM);
+              .map(record -> new HoodieAvroRecord(record.getKey(), null)).collect(Collectors.toList()));
       // Should have 100 records in table (check using Index), all in locations marked at commit
-      SparkRDDReadClient readClient = getHoodieReadClient(hoodieWriteConfig.getBasePath());
+      HoodieReadClient readClient = getHoodieReadClient(hoodieWriteConfig.getBasePath());
       List<HoodieRecord> taggedRecords = readClient.tagLocation(recordRDD).collect();
       checkTaggedRecords(taggedRecords, newCommitTime);
 
@@ -226,7 +226,7 @@ public class TestHoodieReadClient extends HoodieClientTestBase {
           numRecords, 200, 2);
       recordRDD =
           jsc.parallelize(result.collect().stream().map(WriteStatus::getWrittenRecords).flatMap(Collection::stream)
-              .map(record -> new HoodieAvroRecord(record.getKey(), null)).collect(Collectors.toList()), PARALLELISM);
+              .map(record -> new HoodieAvroRecord(record.getKey(), null)).collect(Collectors.toList()));
       // Index should be able to locate all updates in correct locations.
       readClient = getHoodieReadClient(hoodieWriteConfig.getBasePath());
       taggedRecords = readClient.tagLocation(recordRDD).collect();

@@ -210,7 +210,7 @@ class TestTableSchemaResolverWithSparkSQL {
       .setConf(spark.sessionState.newHadoopConf())
       .build()
 
-    assertTrue(new TableSchemaResolver(metaClient).hasOperationField)
+    assertTrue(new TableSchemaResolver(metaClient).isHasOperationField)
     schemaValuationBasedOnDataFile(metaClient, schema.toString())
   }
 

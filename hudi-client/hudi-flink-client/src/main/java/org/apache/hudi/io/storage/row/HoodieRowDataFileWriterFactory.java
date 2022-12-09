@@ -22,7 +22,6 @@ import org.apache.hudi.common.bloom.BloomFilter;
 import org.apache.hudi.common.bloom.BloomFilterFactory;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.io.storage.HoodieParquetConfig;
 import org.apache.hudi.table.HoodieTable;
 
 import org.apache.flink.table.types.logical.RowType;
@@ -44,21 +43,22 @@ public class HoodieRowDataFileWriterFactory {
    * @param hoodieTable instance of {@link HoodieTable} in use.
    * @param config      instance of {@link HoodieWriteConfig} to use.
    * @param schema      schema of the dataset in use.
+   * @param utcTimestamp use UTC timezone or local timezone to the conversion between epoch time and LocalDateTime.
    * @return the instantiated {@link HoodieRowDataFileWriter}.
    * @throws IOException if format is not supported or if any exception during instantiating the RowFileWriter.
    */
   public static HoodieRowDataFileWriter getRowDataFileWriter(
-      Path path, HoodieTable hoodieTable, HoodieWriteConfig config, RowType schema)
+      Path path, HoodieTable hoodieTable, HoodieWriteConfig config, RowType schema, boolean utcTimestamp)
       throws IOException {
     final String extension = FSUtils.getFileExtension(path.getName());
     if (PARQUET.getFileExtension().equals(extension)) {
-      return newParquetInternalRowFileWriter(path, config, schema, hoodieTable);
+      return newParquetInternalRowFileWriter(path, config, schema, hoodieTable, utcTimestamp);
     }
     throw new UnsupportedOperationException(extension + " format not supported yet.");
   }
 
   private static HoodieRowDataFileWriter newParquetInternalRowFileWriter(
-      Path path, HoodieWriteConfig writeConfig, RowType rowType, HoodieTable table)
+      Path path, HoodieWriteConfig writeConfig, RowType rowType, HoodieTable table, boolean utcTimestamp)
       throws IOException {
     BloomFilter filter = BloomFilterFactory.createBloomFilter(
         writeConfig.getBloomFilterNumEntries(),
@@ -66,16 +66,15 @@ public class HoodieRowDataFileWriterFactory {
         writeConfig.getDynamicBloomFilterMaxNumEntries(),
         writeConfig.getBloomFilterType());
     HoodieRowDataParquetWriteSupport writeSupport =
-        new HoodieRowDataParquetWriteSupport(table.getHadoopConf(), rowType, filter);
+        new HoodieRowDataParquetWriteSupport(table.getHadoopConf(), rowType, utcTimestamp, filter);
     return new HoodieRowDataParquetWriter(
-        path, new HoodieParquetConfig<>(
+        path, new HoodieRowDataParquetConfig(
         writeSupport,
         writeConfig.getParquetCompressionCodec(),
         writeConfig.getParquetBlockSize(),
         writeConfig.getParquetPageSize(),
         writeConfig.getParquetMaxFileSize(),
         writeSupport.getHadoopConf(),
-        writeConfig.getParquetCompressionRatio(),
-        writeConfig.parquetDictionaryEnabled()));
+        writeConfig.getParquetCompressionRatio()));
   }
 }

@@ -27,7 +27,6 @@ import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.model.HoodieWriteStat;
-import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.CompactionUtils;
 import org.apache.hudi.common.util.Option;
@@ -41,9 +40,8 @@ import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.action.BaseActionExecutor;
 import org.apache.hudi.table.action.HoodieWriteMetadata;
 
+import java.io.IOException;
 import java.util.List;
-
-import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 
 @SuppressWarnings("checkstyle:LineLength")
 public class RunCompactionActionExecutor<T extends HoodieRecordPayload> extends
@@ -51,37 +49,29 @@ public class RunCompactionActionExecutor<T extends HoodieRecordPayload> extends
 
   private final HoodieCompactor compactor;
   private final HoodieCompactionHandler compactionHandler;
-  private WriteOperationType operationType;
 
   public RunCompactionActionExecutor(HoodieEngineContext context,
                                      HoodieWriteConfig config,
                                      HoodieTable table,
                                      String instantTime,
                                      HoodieCompactor compactor,
-                                     HoodieCompactionHandler compactionHandler,
-                                     WriteOperationType operationType) {
+                                     HoodieCompactionHandler compactionHandler) {
     super(context, config, table, instantTime);
     this.compactor = compactor;
     this.compactionHandler = compactionHandler;
-    this.operationType = operationType;
-    checkArgument(operationType == WriteOperationType.COMPACT || operationType == WriteOperationType.LOG_COMPACT,
-        "Only COMPACT and LOG_COMPACT is supported");
   }
 
   @Override
   public HoodieWriteMetadata<HoodieData<WriteStatus>> execute() {
-    HoodieTimeline pendingMajorOrMinorCompactionTimeline = WriteOperationType.COMPACT.equals(operationType)
-        ? table.getActiveTimeline().filterPendingCompactionTimeline()
-        : table.getActiveTimeline().filterPendingLogCompactionTimeline();
-    compactor.preCompact(table, pendingMajorOrMinorCompactionTimeline, this.operationType, instantTime);
+    HoodieTimeline pendingCompactionTimeline = table.getActiveTimeline().filterPendingCompactionTimeline();
+    compactor.preCompact(table, pendingCompactionTimeline, instantTime);
 
     HoodieWriteMetadata<HoodieData<WriteStatus>> compactionMetadata = new HoodieWriteMetadata<>();
     try {
       // generate compaction plan
       // should support configurable commit metadata
-      HoodieCompactionPlan compactionPlan = operationType.equals(WriteOperationType.COMPACT)
-          ? CompactionUtils.getCompactionPlan(table.getMetaClient(), instantTime)
-          : CompactionUtils.getLogCompactionPlan(table.getMetaClient(), instantTime);
+      HoodieCompactionPlan compactionPlan =
+          CompactionUtils.getCompactionPlan(table.getMetaClient(), instantTime);
 
       // try to load internalSchema to support schema Evolution
       HoodieWriteConfig configCopy = config;
@@ -98,7 +88,7 @@ public class RunCompactionActionExecutor<T extends HoodieRecordPayload> extends
           context, compactionPlan, table, configCopy, instantTime, compactionHandler);
 
       compactor.maybePersist(statuses, config);
-      context.setJobStatus(this.getClass().getSimpleName(), "Preparing compaction metadata: " + config.getTableName());
+      context.setJobStatus(this.getClass().getSimpleName(), "Preparing compaction metadata");
       List<HoodieWriteStat> updateStatusMap = statuses.map(WriteStatus::getStat).collectAsList();
       HoodieCommitMetadata metadata = new HoodieCommitMetadata(true);
       for (HoodieWriteStat stat : updateStatusMap) {
@@ -109,11 +99,10 @@ public class RunCompactionActionExecutor<T extends HoodieRecordPayload> extends
         metadata.addMetadata(SerDeHelper.LATEST_SCHEMA, schemaPair.getLeft().get());
         metadata.addMetadata(HoodieCommitMetadata.SCHEMA_KEY, schemaPair.getRight().get());
       }
-      metadata.setOperationType(operationType);
       compactionMetadata.setWriteStatuses(statuses);
       compactionMetadata.setCommitted(false);
       compactionMetadata.setCommitMetadata(Option.of(metadata));
-    } catch (Exception e) {
+    } catch (IOException e) {
       throw new HoodieCompactionException("Could not compact " + config.getBasePath(), e);
     }
 

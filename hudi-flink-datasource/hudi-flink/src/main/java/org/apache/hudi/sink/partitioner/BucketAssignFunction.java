@@ -31,11 +31,10 @@ import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.configuration.FlinkOptions;
-import org.apache.hudi.configuration.HadoopConfigurations;
 import org.apache.hudi.sink.bootstrap.IndexRecord;
 import org.apache.hudi.sink.utils.PayloadCreation;
 import org.apache.hudi.table.action.commit.BucketInfo;
-import org.apache.hudi.util.FlinkWriteClients;
+import org.apache.hudi.util.StreamerUtil;
 
 import org.apache.flink.api.common.state.CheckpointListener;
 import org.apache.flink.api.common.state.StateTtlConfig;
@@ -115,9 +114,9 @@ public class BucketAssignFunction<K, I, O extends HoodieRecord<?>>
   @Override
   public void open(Configuration parameters) throws Exception {
     super.open(parameters);
-    HoodieWriteConfig writeConfig = FlinkWriteClients.getHoodieClientConfig(this.conf, true);
+    HoodieWriteConfig writeConfig = StreamerUtil.getHoodieClientConfig(this.conf, true);
     HoodieFlinkEngineContext context = new HoodieFlinkEngineContext(
-        new SerializableConfiguration(HadoopConfigurations.getHadoopConf(this.conf)),
+        new SerializableConfiguration(StreamerUtil.getHadoopConf()),
         new FlinkTaskContextSupplier(getRuntimeContext()));
     this.bucketAssigner = BucketAssigners.create(
         getRuntimeContext().getIndexOfThisSubtask(),

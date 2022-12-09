@@ -18,14 +18,12 @@
 
 package org.apache.hudi.common.table.log;
 
-import org.apache.hudi.common.fs.BoundedFsDataInputStream;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.fs.SchemeAwareFSDataInputStream;
 import org.apache.hudi.common.fs.TimedFSDataInputStream;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.table.log.block.HoodieAvroDataBlock;
-import org.apache.hudi.common.table.log.block.HoodieCDCDataBlock;
 import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
 import org.apache.hudi.common.table.log.block.HoodieCorruptBlock;
 import org.apache.hudi.common.table.log.block.HoodieDeleteBlock;
@@ -47,6 +45,7 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSInputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.hbase.util.Bytes;
+
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -77,7 +76,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
   private final HoodieLogFile logFile;
   private final byte[] magicBuffer = new byte[6];
   private final Schema readerSchema;
-  private InternalSchema internalSchema;
+  private InternalSchema internalSchema = InternalSchema.getEmptyInternalSchema();
   private final String keyField;
   private boolean readBlockLazily;
   private long reverseLogFilePosition;
@@ -157,15 +156,15 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     } catch (EOFException | CorruptedLogFileException e) {
       // An exception reading any of the above indicates a corrupt block
       // Create a corrupt block by finding the next MAGIC marker or EOF
-      return createCorruptBlock(blockStartPos);
+      return createCorruptBlock();
     }
 
     // We may have had a crash which could have written this block partially
     // Skip blockSize in the stream and we should either find a sync marker (start of the next
     // block) or EOF. If we did not find either of it, then this block is a corrupted block.
-    boolean isCorrupted = isBlockCorrupted(blockSize);
+    boolean isCorrupted = isBlockCorrupted(blockStartPos, blockSize);
     if (isCorrupted) {
-      return createCorruptBlock(blockStartPos);
+      return createCorruptBlock();
     }
 
     // 2. Read the version for this log format
@@ -212,7 +211,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
           return HoodieAvroDataBlock.getBlock(content.get(), readerSchema, internalSchema);
         } else {
           return new HoodieAvroDataBlock(inputStream, content, readBlockLazily, logBlockContentLoc,
-              getTargetReaderSchemaForBlock(), header, footer, keyField);
+              Option.ofNullable(readerSchema), header, footer, keyField, internalSchema);
         }
 
       case HFILE_DATA_BLOCK:
@@ -235,23 +234,8 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
       case COMMAND_BLOCK:
         return new HoodieCommandBlock(content, inputStream, readBlockLazily, Option.of(logBlockContentLoc), header, footer);
 
-      case CDC_DATA_BLOCK:
-        return new HoodieCDCDataBlock(inputStream, content, readBlockLazily, logBlockContentLoc, readerSchema, header, keyField);
-
       default:
         throw new HoodieNotSupportedException("Unsupported Block " + blockType);
-    }
-  }
-
-  private Option<Schema> getTargetReaderSchemaForBlock() {
-    // we should use write schema to read log file,
-    // since when we have done some DDL operation, the readerSchema maybe different from writeSchema, avro reader will throw exception.
-    // eg: origin writeSchema is: "a String, b double" then we add a new column now the readerSchema will be: "a string, c int, b double". it's wrong to use readerSchema to read old log file.
-    // after we read those record by writeSchema,  we rewrite those record with readerSchema in AbstractHoodieLogRecordReader
-    if (internalSchema.isEmptySchema()) {
-      return Option.ofNullable(this.readerSchema);
-    } else {
-      return Option.empty();
     }
   }
 
@@ -266,14 +250,14 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     return HoodieLogBlockType.values()[type];
   }
 
-  private HoodieLogBlock createCorruptBlock(long blockStartPos) throws IOException {
-    LOG.info("Log " + logFile + " has a corrupted block at " + blockStartPos);
-    inputStream.seek(blockStartPos);
+  private HoodieLogBlock createCorruptBlock() throws IOException {
+    LOG.info("Log " + logFile + " has a corrupted block at " + inputStream.getPos());
+    long currentPos = inputStream.getPos();
     long nextBlockOffset = scanForNextAvailableBlockOffset();
     // Rewind to the initial start and read corrupted bytes till the nextBlockOffset
-    inputStream.seek(blockStartPos);
+    inputStream.seek(currentPos);
     LOG.info("Next available block in " + logFile + " starts at " + nextBlockOffset);
-    int corruptedBlockSize = (int) (nextBlockOffset - blockStartPos);
+    int corruptedBlockSize = (int) (nextBlockOffset - currentPos);
     long contentPosition = inputStream.getPos();
     Option<byte[]> corruptedBytes = HoodieLogBlock.tryReadContent(inputStream, corruptedBlockSize, readBlockLazily);
     HoodieLogBlock.HoodieLogBlockContentLocation logBlockContentLoc =
@@ -281,10 +265,10 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     return new HoodieCorruptBlock(corruptedBytes, inputStream, readBlockLazily, Option.of(logBlockContentLoc), new HashMap<>(), new HashMap<>());
   }
 
-  private boolean isBlockCorrupted(int blocksize) throws IOException {
+  private boolean isBlockCorrupted(long blockStartPos, int blocksize) throws IOException {
     long currentPos = inputStream.getPos();
     long blockSizeFromFooter;
-    
+
     try {
       // check if the blocksize mentioned in the footer is the same as the header;
       // by seeking and checking the length of a long.  We do not seek `currentPos + blocksize`
@@ -300,7 +284,7 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
       // This seek is required because contract of seek() is different for naked DFSInputStream vs BufferedFSInputStream
       // release-3.1.0-RC1/DFSInputStream.java#L1455
       // release-3.1.0-RC1/BufferedFSInputStream.java#L73
-      inputStream.seek(currentPos);
+      inputStream.seek(blockStartPos);
       return true;
     }
 
@@ -493,10 +477,6 @@ public class HoodieLogFileReader implements HoodieLogFormat.Reader {
     if (FSUtils.isGCSFileSystem(fs)) {
       // in GCS FS, we might need to interceptor seek offsets as we might get EOF exception
       return new SchemeAwareFSDataInputStream(getFSDataInputStreamForGCS(fsDataInputStream, logFile, bufferSize), true);
-    }
-
-    if (FSUtils.isCHDFileSystem(fs)) {
-      return new BoundedFsDataInputStream(fs, logFile.getPath(), fsDataInputStream);
     }
 
     if (fsDataInputStream.getWrappedStream() instanceof FSInputStream) {

@@ -36,7 +36,6 @@ import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.storage.StorageLevel;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -64,11 +63,6 @@ public class TestJdbcSource extends UtilitiesTestBase {
   private static final TypedProperties PROPS = new TypedProperties();
   private static final HoodieTestDataGenerator DATA_GENERATOR = new HoodieTestDataGenerator();
   private static Connection connection;
-
-  @BeforeAll
-  public static void beforeAll() throws Exception {
-    UtilitiesTestBase.initTestServices(false, false, false);
-  }
 
   @BeforeEach
   public void setup() throws Exception {

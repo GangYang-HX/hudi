@@ -18,16 +18,12 @@
 
 package org.apache.hudi.common.util;
 
-import org.junit.jupiter.api.Test;
-
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Tests {@link RateLimiter}.
- */
 public class TestRatelimiter {
 
   @Test

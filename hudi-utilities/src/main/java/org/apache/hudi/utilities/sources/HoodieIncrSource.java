@@ -41,7 +41,7 @@ public class HoodieIncrSource extends RowSource {
 
   private static final Logger LOG = LogManager.getLogger(HoodieIncrSource.class);
 
-  public static class Config {
+  static class Config {
 
     /**
      * {@value #HOODIE_SRC_BASE_PATH} is the base-path for the source Hoodie table.
@@ -52,7 +52,7 @@ public class HoodieIncrSource extends RowSource {
      * {@value #NUM_INSTANTS_PER_FETCH} allows the max number of instants whose changes can be incrementally fetched.
      */
     static final String NUM_INSTANTS_PER_FETCH = "hoodie.deltastreamer.source.hoodieincr.num_instants";
-    static final Integer DEFAULT_NUM_INSTANTS_PER_FETCH = 5;
+    static final Integer DEFAULT_NUM_INSTANTS_PER_FETCH = 1;
 
     /**
      * {@value #HOODIE_SRC_PARTITION_FIELDS} specifies partition fields that needs to be added to source table after
@@ -74,27 +74,21 @@ public class HoodieIncrSource extends RowSource {
      * instant when checkpoint is not provided. This config is deprecated. Please refer to {@link #MISSING_CHECKPOINT_STRATEGY}.
      */
     @Deprecated
-    public static final String READ_LATEST_INSTANT_ON_MISSING_CKPT =
+    static final String READ_LATEST_INSTANT_ON_MISSING_CKPT =
         "hoodie.deltastreamer.source.hoodieincr.read_latest_on_missing_ckpt";
-    public static final Boolean DEFAULT_READ_LATEST_INSTANT_ON_MISSING_CKPT = false;
+    static final Boolean DEFAULT_READ_LATEST_INSTANT_ON_MISSING_CKPT = false;
 
     /**
      * {@value #MISSING_CHECKPOINT_STRATEGY} allows delta-streamer to decide the checkpoint to consume from when checkpoint is not set.
      * instant when checkpoint is not provided.
      */
-    public static final String MISSING_CHECKPOINT_STRATEGY = "hoodie.deltastreamer.source.hoodieincr.missing.checkpoint.strategy";
+    static final String MISSING_CHECKPOINT_STRATEGY = "hoodie.deltastreamer.source.hoodieincr.missing.checkpoint.strategy";
 
     /**
      * {@value #SOURCE_FILE_FORMAT} is passed to the reader while loading dataset. Default value is parquet.
      */
     static final String SOURCE_FILE_FORMAT = "hoodie.deltastreamer.source.hoodieincr.file.format";
     static final String DEFAULT_SOURCE_FILE_FORMAT = "parquet";
-
-    /**
-     * Drops all meta fields from the source hudi table while ingesting into sink hudi table.
-     */
-    static final String HOODIE_DROP_ALL_META_FIELDS_FROM_SOURCE = "hoodie.deltastreamer.source.hoodieincr.drop.all.meta.fields.from.source";
-    public static final Boolean DEFAULT_HOODIE_DROP_ALL_META_FIELDS_FROM_SOURCE = false;
   }
 
   public HoodieIncrSource(TypedProperties props, JavaSparkContext sparkContext, SparkSession sparkSession,
@@ -154,9 +148,7 @@ public class HoodieIncrSource extends RowSource {
           .load(srcPath)
           // add filtering so that only interested records are returned.
           .filter(String.format("%s > '%s'", HoodieRecord.COMMIT_TIME_METADATA_FIELD,
-              queryTypeAndInstantEndpts.getRight().getLeft()))
-          .filter(String.format("%s <= '%s'", HoodieRecord.COMMIT_TIME_METADATA_FIELD,
-              queryTypeAndInstantEndpts.getRight().getRight()));
+              queryTypeAndInstantEndpts.getRight().getLeft()));
     }
 
     /*
@@ -180,13 +172,10 @@ public class HoodieIncrSource extends RowSource {
      *
      * log.info("Validated Source Schema :" + validated.schema());
      */
-    boolean dropAllMetaFields = props.getBoolean(Config.HOODIE_DROP_ALL_META_FIELDS_FROM_SOURCE,
-        Config.DEFAULT_HOODIE_DROP_ALL_META_FIELDS_FROM_SOURCE);
 
     // Remove Hoodie meta columns except partition path from input source
-    String[] colsToDrop = dropAllMetaFields ? HoodieRecord.HOODIE_META_COLUMNS.stream().toArray(String[]::new) :
-        HoodieRecord.HOODIE_META_COLUMNS.stream().filter(x -> !x.equals(HoodieRecord.PARTITION_PATH_METADATA_FIELD)).toArray(String[]::new);
-    final Dataset<Row> src = source.drop(colsToDrop);
+    final Dataset<Row> src = source.drop(HoodieRecord.HOODIE_META_COLUMNS.stream()
+        .filter(x -> !x.equals(HoodieRecord.PARTITION_PATH_METADATA_FIELD)).toArray(String[]::new));
     // log.info("Final Schema from Source is :" + src.schema());
     return Pair.of(Option.of(src), queryTypeAndInstantEndpts.getRight().getRight());
   }

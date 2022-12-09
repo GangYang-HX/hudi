@@ -91,9 +91,9 @@ public class InsertFunctionWrapper<I> implements TestFunctionWrapper<I> {
     StreamConfig streamConfig = new StreamConfig(conf);
     streamConfig.setOperatorID(new OperatorID());
     StreamTask<?, ?> streamTask = new MockStreamTaskBuilder(environment)
-        .setConfig(new StreamConfig(conf))
-        .setExecutionConfig(new ExecutionConfig().enableObjectReuse())
-        .build();
+            .setConfig(new StreamConfig(conf))
+            .setExecutionConfig(new ExecutionConfig().enableObjectReuse())
+            .build();
     this.clusteringFunctionWrapper = new ClusteringFunctionWrapper(this.conf, streamTask, streamConfig);
   }
 
@@ -101,11 +101,11 @@ public class InsertFunctionWrapper<I> implements TestFunctionWrapper<I> {
     this.coordinator.start();
     this.coordinator.setExecutor(new MockCoordinatorExecutor(coordinatorContext));
 
-    setupWriteFunction();
-
     if (asyncClustering) {
       clusteringFunctionWrapper.openFunction();
     }
+
+    setupWriteFunction();
   }
 
   public void invoke(I record) throws Exception {

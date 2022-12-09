@@ -68,7 +68,10 @@ public class InternalSchemaMerger {
   }
 
   public InternalSchemaMerger(InternalSchema fileSchema, InternalSchema querySchema, boolean ignoreRequiredAttribute, boolean useColumnTypeFromFileSchema) {
-    this(fileSchema, querySchema, ignoreRequiredAttribute, useColumnTypeFromFileSchema, true);
+    this.fileSchema = fileSchema;
+    this.querySchema = querySchema;
+    this.ignoreRequiredAttribute = ignoreRequiredAttribute;
+    this.useColumnTypeFromFileSchema = useColumnTypeFromFileSchema;
   }
 
   /**
@@ -78,7 +81,7 @@ public class InternalSchemaMerger {
    */
   public InternalSchema mergeSchema() {
     Types.RecordType record = (Types.RecordType) mergeType(querySchema.getRecord(), 0);
-    return new InternalSchema(record);
+    return new InternalSchema(record.fields());
   }
 
   /**
@@ -148,15 +151,14 @@ public class InternalSchemaMerger {
     Types.Field fieldFromFileSchema = fileSchema.findField(fieldId);
     String nameFromFileSchema = fieldFromFileSchema.name();
     String nameFromQuerySchema = querySchema.findField(fieldId).name();
-    String finalFieldName = useColNameFromFileSchema ? nameFromFileSchema : nameFromQuerySchema;
     Type typeFromFileSchema = fieldFromFileSchema.type();
     // Current design mechanism guarantees nestedType change is not allowed, so no need to consider.
     if (newType.isNestedType()) {
       return Types.Field.get(oldField.fieldId(), oldField.isOptional(),
-          finalFieldName, newType, oldField.doc());
+          useColNameFromFileSchema ? nameFromFileSchema : nameFromQuerySchema, newType, oldField.doc());
     } else {
       return Types.Field.get(oldField.fieldId(), oldField.isOptional(),
-          finalFieldName, useColumnTypeFromFileSchema ? typeFromFileSchema : newType, oldField.doc());
+          useColNameFromFileSchema ? nameFromFileSchema : nameFromQuerySchema, useColumnTypeFromFileSchema ? typeFromFileSchema : newType, oldField.doc());
     }
   }
 

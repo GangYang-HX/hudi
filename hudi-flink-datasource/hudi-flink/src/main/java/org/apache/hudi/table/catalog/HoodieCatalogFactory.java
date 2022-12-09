@@ -18,8 +18,6 @@
 
 package org.apache.hudi.table.catalog;
 
-import org.apache.hudi.exception.HoodieCatalogException;
-
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.catalog.Catalog;
@@ -30,8 +28,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
+
+import static org.apache.hudi.table.catalog.CatalogOptions.CATALOG_PATH;
+import static org.apache.hudi.table.catalog.CatalogOptions.DEFAULT_DATABASE;
 
 /**
  * A catalog factory impl that creates {@link HoodieCatalog}.
@@ -51,28 +51,22 @@ public class HoodieCatalogFactory implements CatalogFactory {
     final FactoryUtil.CatalogFactoryHelper helper =
         FactoryUtil.createCatalogFactoryHelper(this, context);
     helper.validate();
-    String mode = helper.getOptions().get(CatalogOptions.MODE);
-    switch (mode.toLowerCase(Locale.ROOT)) {
-      case "hms":
-        return new HoodieHiveCatalog(
-            context.getName(),
-            (Configuration) helper.getOptions());
-      case "dfs":
-        return new HoodieCatalog(
-            context.getName(),
-            (Configuration) helper.getOptions());
-      default:
-        throw new HoodieCatalogException(String.format("Invalid catalog mode: %s, supported modes: [hms, dfs].", mode));
-    }
+
+    return new HoodieCatalog(
+        context.getName(),
+        (Configuration) helper.getOptions());
   }
 
   @Override
   public Set<ConfigOption<?>> requiredOptions() {
-    return Collections.emptySet();
+    Set<ConfigOption<?>> options = new HashSet<>();
+    options.add(CATALOG_PATH);
+    options.add(DEFAULT_DATABASE);
+    return options;
   }
 
   @Override
   public Set<ConfigOption<?>> optionalOptions() {
-    return new HashSet<>(CatalogOptions.allOptions());
+    return Collections.emptySet();
   }
 }

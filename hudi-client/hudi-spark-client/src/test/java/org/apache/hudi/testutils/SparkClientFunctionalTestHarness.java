@@ -19,8 +19,14 @@
 
 package org.apache.hudi.testutils;
 
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hudi.AvroConversionUtils;
-import org.apache.hudi.client.SparkRDDReadClient;
+import org.apache.hudi.client.HoodieReadClient;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
@@ -53,13 +59,6 @@ import org.apache.hudi.testutils.providers.HoodieMetaClientProvider;
 import org.apache.hudi.testutils.providers.HoodieWriteClientProvider;
 import org.apache.hudi.testutils.providers.SparkProvider;
 import org.apache.hudi.timeline.service.TimelineService;
-
-import org.apache.avro.Schema;
-import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -68,7 +67,6 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SQLContext;
 import org.apache.spark.sql.SparkSession;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -98,7 +96,6 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
   private static transient JavaSparkContext jsc;
   private static transient HoodieSparkEngineContext context;
   private static transient TimelineService timelineService;
-  private FileSystem fileSystem;
 
   /**
    * An indicator of the initialization status.
@@ -131,10 +128,7 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
   }
 
   public FileSystem fs() {
-    if (fileSystem == null) {
-      fileSystem = FSUtils.getFs(basePath(), hadoopConf());
-    }
-    return fileSystem;
+    return FSUtils.getFs(basePath(), hadoopConf());
   }
 
   @Override
@@ -161,7 +155,7 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
   }
 
   public HoodieTableMetaClient getHoodieMetaClient(Configuration hadoopConf, String basePath) throws IOException {
-    return getHoodieMetaClient(hadoopConf, basePath, getPropertiesForKeyGen(true));
+    return getHoodieMetaClient(hadoopConf, basePath, new Properties());
   }
 
   @Override
@@ -186,7 +180,7 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
     if (!initialized) {
       SparkConf sparkConf = conf();
       SparkRDDWriteClient.registerClasses(sparkConf);
-      SparkRDDReadClient.addHoodieSupport(sparkConf);
+      HoodieReadClient.addHoodieSupport(sparkConf);
       spark = SparkSession.builder().config(sparkConf).getOrCreate();
       sqlContext = spark.sqlContext();
       jsc = new JavaSparkContext(spark.sparkContext());
@@ -211,14 +205,6 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
     }
     if (timelineService != null) {
       timelineService.close();
-    }
-  }
-
-  @AfterEach
-  public void closeFileSystem() throws IOException {
-    if (fileSystem != null) {
-      fileSystem.close();
-      fileSystem = null;
     }
   }
 
@@ -311,12 +297,8 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
   }
 
   protected Properties getPropertiesForKeyGen() {
-    return getPropertiesForKeyGen(false);
-  }
-
-  protected Properties getPropertiesForKeyGen(boolean populateMetaFields) {
     Properties properties = new Properties();
-    properties.put(HoodieTableConfig.POPULATE_META_FIELDS.key(), String.valueOf(populateMetaFields));
+    properties.put(HoodieTableConfig.POPULATE_META_FIELDS.key(), "false");
     properties.put("hoodie.datasource.write.recordkey.field", "_row_key");
     properties.put("hoodie.datasource.write.partitionpath.field", "partition_path");
     properties.put(HoodieTableConfig.RECORDKEY_FIELDS.key(), "_row_key");
@@ -326,9 +308,9 @@ public class SparkClientFunctionalTestHarness implements SparkProvider, HoodieMe
   }
 
   protected void addConfigsForPopulateMetaFields(HoodieWriteConfig.Builder configBuilder, boolean populateMetaFields) {
-    configBuilder.withProperties(getPropertiesForKeyGen(populateMetaFields));
     if (!populateMetaFields) {
-      configBuilder.withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.SIMPLE).build());
+      configBuilder.withProperties(getPropertiesForKeyGen())
+          .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.SIMPLE).build());
     }
   }
 

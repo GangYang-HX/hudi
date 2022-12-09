@@ -29,6 +29,7 @@ import org.apache.hudi.util.StreamerUtil;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.runtime.state.KeyGroupRangeAssignment;
+import org.apache.flink.util.Preconditions;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -308,6 +309,9 @@ public class BucketAssigner implements AutoCloseable {
      * Remembers to invoke {@link #canAssign()} first.
      */
     public void assign() {
+      Preconditions.checkState(canAssign(),
+          "Can not assign insert to small file: assigned => "
+              + this.assigned + " totalUnassigned => " + this.totalUnassigned);
       this.assigned++;
     }
   }
@@ -335,6 +339,9 @@ public class BucketAssigner implements AutoCloseable {
      * Remembers to invoke {@link #canAssign()} first.
      */
     public void assign() {
+      Preconditions.checkState(canAssign(),
+          "Can not assign insert to new file: assigned => "
+              + this.assigned + " totalUnassigned => " + this.totalUnassigned);
       this.assigned++;
     }
   }

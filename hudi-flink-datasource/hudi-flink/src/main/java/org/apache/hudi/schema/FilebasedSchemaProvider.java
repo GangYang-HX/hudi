@@ -21,7 +21,6 @@ package org.apache.hudi.schema;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.configuration.FlinkOptions;
-import org.apache.hudi.configuration.HadoopConfigurations;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.util.StreamerUtil;
 
@@ -50,10 +49,9 @@ public class FilebasedSchemaProvider extends SchemaProvider {
 
   private Schema targetSchema;
 
-  @Deprecated
   public FilebasedSchemaProvider(TypedProperties props) {
     StreamerUtil.checkRequiredProperties(props, Collections.singletonList(Config.SOURCE_SCHEMA_FILE_PROP));
-    FileSystem fs = FSUtils.getFs(props.getString(Config.SOURCE_SCHEMA_FILE_PROP), HadoopConfigurations.getHadoopConf(new Configuration()));
+    FileSystem fs = FSUtils.getFs(props.getString(Config.SOURCE_SCHEMA_FILE_PROP), StreamerUtil.getHadoopConf());
     try {
       this.sourceSchema = new Schema.Parser().parse(fs.open(new Path(props.getString(Config.SOURCE_SCHEMA_FILE_PROP))));
       if (props.containsKey(Config.TARGET_SCHEMA_FILE_PROP)) {
@@ -67,7 +65,7 @@ public class FilebasedSchemaProvider extends SchemaProvider {
 
   public FilebasedSchemaProvider(Configuration conf) {
     final String sourceSchemaPath = conf.getString(FlinkOptions.SOURCE_AVRO_SCHEMA_PATH);
-    final FileSystem fs = FSUtils.getFs(sourceSchemaPath, HadoopConfigurations.getHadoopConf(conf));
+    final FileSystem fs = FSUtils.getFs(sourceSchemaPath, StreamerUtil.getHadoopConf());
     try {
       this.sourceSchema = new Schema.Parser().parse(fs.open(new Path(sourceSchemaPath)));
     } catch (IOException ioe) {

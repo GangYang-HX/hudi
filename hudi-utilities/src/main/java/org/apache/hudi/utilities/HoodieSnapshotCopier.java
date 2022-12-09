@@ -107,7 +107,7 @@ public class HoodieSnapshotCopier implements Serializable {
         fs.delete(new Path(outputDir), true);
       }
 
-      context.setJobStatus(this.getClass().getSimpleName(), "Creating a snapshot: " + baseDir);
+      context.setJobStatus(this.getClass().getSimpleName(), "Creating a snapshot");
 
       List<Tuple2<String, String>> filesToCopy = context.flatMap(partitions, partition -> {
         // Only take latest version files <= latestCommit.

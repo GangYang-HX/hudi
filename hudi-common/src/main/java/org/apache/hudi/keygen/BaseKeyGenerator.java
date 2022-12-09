@@ -17,19 +17,15 @@
 
 package org.apache.hudi.keygen;
 
+import org.apache.avro.generic.GenericRecord;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.exception.HoodieKeyException;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 
-import org.apache.avro.generic.GenericRecord;
-
 import java.util.List;
+import java.util.stream.Collectors;
 
-/**
- * Base abstract class to extend for {@link KeyGenerator} with default logic of taking
- * partitioning and timestamp configs.
- */
 public abstract class BaseKeyGenerator extends KeyGenerator {
 
   protected List<String> recordKeyFields;
@@ -63,14 +59,22 @@ public abstract class BaseKeyGenerator extends KeyGenerator {
    */
   @Override
   public final HoodieKey getKey(GenericRecord record) {
-    if (getRecordKeyFieldNames() == null || getPartitionPathFields() == null) {
+    if (getRecordKeyFields() == null || getPartitionPathFields() == null) {
       throw new HoodieKeyException("Unable to find field names for record key or partition path in cfg");
     }
     return new HoodieKey(getRecordKey(record), getPartitionPath(record));
   }
 
   @Override
-  public List<String> getRecordKeyFieldNames() {
+  public final List<String> getRecordKeyFieldNames() {
+    // For nested columns, pick top level column name
+    return getRecordKeyFields().stream().map(k -> {
+      int idx = k.indexOf('.');
+      return idx > 0 ? k.substring(0, idx) : k;
+    }).collect(Collectors.toList());
+  }
+
+  public List<String> getRecordKeyFields() {
     return recordKeyFields;
   }
 

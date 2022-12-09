@@ -19,12 +19,11 @@
 
 package org.apache.hudi.common.util.hash;
 
-import org.apache.hudi.exception.HoodieIOException;
-
 import net.jpountz.xxhash.XXHash32;
 import net.jpountz.xxhash.XXHash64;
 import net.jpountz.xxhash.XXHashFactory;
 import org.apache.hadoop.hbase.util.Bytes;
+import org.apache.hudi.exception.HoodieIOException;
 
 import java.io.Serializable;
 import java.nio.charset.StandardCharsets;
@@ -105,15 +104,6 @@ public class HashID implements Serializable {
       default:
         throw new IllegalArgumentException("Unexpected Hash size bits: " + bits);
     }
-  }
-
-  public static int getXXHash32(final String message, int hashSeed) {
-    return getXXHash32(message.getBytes(StandardCharsets.UTF_8), hashSeed);
-  }
-
-  public static int getXXHash32(final byte[] message, int hashSeed) {
-    XXHashFactory factory = XXHashFactory.fastestInstance();
-    return factory.hash32().hash(message, 0, message.length, hashSeed);
   }
 
   private static byte[] getXXHash(final byte[] message, final Size bits) {

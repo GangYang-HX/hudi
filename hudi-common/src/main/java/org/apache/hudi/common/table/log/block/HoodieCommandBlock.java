@@ -36,7 +36,7 @@ public class HoodieCommandBlock extends HoodieLogBlock {
    * Hoodie command block type enum.
    */
   public enum HoodieCommandBlockTypeEnum {
-    ROLLBACK_BLOCK
+    ROLLBACK_PREVIOUS_BLOCK
   }
 
   public HoodieCommandBlock(Map<HeaderMetadataType, String> header) {

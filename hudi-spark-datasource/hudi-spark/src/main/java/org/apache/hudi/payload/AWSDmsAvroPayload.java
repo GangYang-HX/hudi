@@ -18,8 +18,15 @@
 
 package org.apache.hudi.payload;
 
-import org.apache.avro.generic.GenericRecord;
+import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.util.Option;
+
+import org.apache.avro.Schema;
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.generic.IndexedRecord;
+
+import java.io.IOException;
+import java.util.Properties;
 
 /**
  * Provides support for seamlessly applying changes captured via Amazon Database Migration Service onto S3.
@@ -35,14 +42,56 @@ import org.apache.hudi.common.util.Option;
  * This payload implementation will issue matching insert, delete, updates against the hudi table
  *
  */
-@Deprecated
-public class AWSDmsAvroPayload extends org.apache.hudi.common.model.AWSDmsAvroPayload {
+public class AWSDmsAvroPayload extends OverwriteWithLatestAvroPayload {
+
+  public static final String OP_FIELD = "Op";
 
   public AWSDmsAvroPayload(GenericRecord record, Comparable orderingVal) {
     super(record, orderingVal);
   }
 
   public AWSDmsAvroPayload(Option<GenericRecord> record) {
-    super(record);
+    this(record.get(), 0); // natural order
+  }
+
+  /**
+   *
+   * Handle a possible delete - check for "D" in Op column and return empty row if found.
+   * @param insertValue The new row that is being "inserted".
+   */
+  private Option<IndexedRecord> handleDeleteOperation(IndexedRecord insertValue) throws IOException {
+    boolean delete = false;
+    if (insertValue instanceof GenericRecord) {
+      GenericRecord record = (GenericRecord) insertValue;
+      delete = record.get(OP_FIELD) != null && record.get(OP_FIELD).toString().equalsIgnoreCase("D");
+    }
+
+    return delete ? Option.empty() : Option.of(insertValue);
+  }
+
+  @Override
+  public Option<IndexedRecord> getInsertValue(Schema schema, Properties properties) throws IOException {
+    IndexedRecord insertValue = super.getInsertValue(schema, properties).get();
+    return handleDeleteOperation(insertValue);
+  }
+
+  @Override
+  public Option<IndexedRecord> getInsertValue(Schema schema) throws IOException {
+    IndexedRecord insertValue = super.getInsertValue(schema).get();
+    return handleDeleteOperation(insertValue);
+  }
+
+  @Override
+  public Option<IndexedRecord> combineAndGetUpdateValue(IndexedRecord currentValue, Schema schema, Properties properties)
+      throws IOException {
+    IndexedRecord insertValue = super.getInsertValue(schema, properties).get();
+    return handleDeleteOperation(insertValue);
+  }
+
+  @Override
+  public Option<IndexedRecord> combineAndGetUpdateValue(IndexedRecord currentValue, Schema schema)
+      throws IOException {
+    IndexedRecord insertValue = super.getInsertValue(schema).get();
+    return handleDeleteOperation(insertValue);
   }
 }

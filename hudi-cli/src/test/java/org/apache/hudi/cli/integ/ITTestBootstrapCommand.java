@@ -22,18 +22,16 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
 import org.apache.hudi.cli.commands.TableCommand;
-import org.apache.hudi.cli.testutils.HoodieCLIIntegrationTestBase;
-import org.apache.hudi.cli.testutils.ShellEvaluationResultUtil;
+import org.apache.hudi.cli.testutils.AbstractShellIntegrationTest;
+import org.apache.hudi.functional.TestBootstrap;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
-import org.apache.hudi.functional.TestBootstrap;
+
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -46,11 +44,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Test class of {@link org.apache.hudi.cli.commands.BootstrapCommand}.
  */
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
-public class ITTestBootstrapCommand extends HoodieCLIIntegrationTestBase {
+public class ITTestBootstrapCommand extends AbstractShellIntegrationTest {
 
-  @Autowired
-  private Shell shell;
   private static final int NUM_OF_RECORDS = 100;
   private static final String PARTITION_FIELD = "datestr";
   private static final String RECORD_KEY_FIELD = "_row_key";
@@ -86,8 +81,8 @@ public class ITTestBootstrapCommand extends HoodieCLIIntegrationTestBase {
     String cmdStr = String.format(
         "bootstrap run --targetPath %s --tableName %s --tableType %s --srcPath %s --rowKeyField %s --partitionPathField %s --sparkMaster %s",
         tablePath, tableName, HoodieTableType.COPY_ON_WRITE.name(), sourcePath, RECORD_KEY_FIELD, PARTITION_FIELD, "local");
-    Object resultForBootstrapRun = shell.evaluate(() -> cmdStr);
-    assertTrue(ShellEvaluationResultUtil.isSuccess(resultForBootstrapRun));
+    CommandResult cr = getShell().executeCommand(cmdStr);
+    assertTrue(cr.isSuccess());
 
     // Connect & check Hudi table exist
     new TableCommand().connect(tablePath, TimelineLayoutVersion.VERSION_1, false, 2000, 300000, 7);
@@ -95,8 +90,8 @@ public class ITTestBootstrapCommand extends HoodieCLIIntegrationTestBase {
     assertEquals(1, metaClient.getActiveTimeline().getCommitsTimeline().countInstants(), "Should have 1 commit.");
 
     // test "bootstrap index showpartitions"
-    Object resultForIndexedPartitions = shell.evaluate(() -> "bootstrap index showpartitions");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(resultForIndexedPartitions));
+    CommandResult crForIndexedPartitions = getShell().executeCommand("bootstrap index showpartitions");
+    assertTrue(crForIndexedPartitions.isSuccess());
 
     String[] header = new String[] {"Indexed partitions"};
     String[][] rows = new String[partitions.size()][1];
@@ -105,15 +100,15 @@ public class ITTestBootstrapCommand extends HoodieCLIIntegrationTestBase {
     }
     String expect = HoodiePrintHelper.print(header, rows);
     expect = removeNonWordAndStripSpace(expect);
-    String got = removeNonWordAndStripSpace(resultForIndexedPartitions.toString());
+    String got = removeNonWordAndStripSpace(crForIndexedPartitions.getResult().toString());
     assertEquals(expect, got);
 
     // test "bootstrap index showMapping"
-    Object resultForIndexedMapping = shell.evaluate(() -> "bootstrap index showmapping");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(resultForIndexedMapping));
+    CommandResult crForIndexedMapping = getShell().executeCommand("bootstrap index showmapping");
+    assertTrue(crForIndexedMapping.isSuccess());
 
-    Object resultForIndexedMappingWithPartition = shell.evaluate(() -> String.format(
-            "bootstrap index showmapping --partitionPath %s=%s", PARTITION_FIELD, partitions.get(0)));
-    assertTrue(ShellEvaluationResultUtil.isSuccess(resultForIndexedMappingWithPartition));
+    CommandResult crForIndexedMappingWithPartition = getShell().executeCommand(String.format(
+        "bootstrap index showmapping --partitionPath %s=%s", PARTITION_FIELD, partitions.get(0)));
+    assertTrue(crForIndexedMappingWithPartition.isSuccess());
   }
 }

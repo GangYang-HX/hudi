@@ -18,12 +18,6 @@
 
 package org.apache.hudi.cli.commands;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Snapshot;
-import com.codahale.metrics.UniformReservoir;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
 import org.apache.hudi.cli.HoodieTableHeaderFields;
@@ -34,9 +28,17 @@ import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.NumericUtils;
-import org.springframework.shell.standard.ShellComponent;
-import org.springframework.shell.standard.ShellMethod;
-import org.springframework.shell.standard.ShellOption;
+
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Snapshot;
+import com.codahale.metrics.UniformReservoir;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import org.springframework.shell.core.CommandMarker;
+import org.springframework.shell.core.annotation.CliCommand;
+import org.springframework.shell.core.annotation.CliOption;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.text.DecimalFormat;
@@ -45,23 +47,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * CLI command to displays stats options.
  */
-@ShellComponent
-public class StatsCommand {
+@Component
+public class StatsCommand implements CommandMarker {
 
   public static final int MAX_FILES = 1000000;
 
-  @ShellMethod(key = "stats wa", value = "Write Amplification. Ratio of how many records were upserted to how many "
+  @CliCommand(value = "stats wa", help = "Write Amplification. Ratio of how many records were upserted to how many "
       + "records were actually written")
   public String writeAmplificationStats(
-      @ShellOption(value = {"--limit"}, help = "Limit commits", defaultValue = "-1") final Integer limit,
-      @ShellOption(value = {"--sortBy"}, help = "Sorting Field", defaultValue = "") final String sortByField,
-      @ShellOption(value = {"--desc"}, help = "Ordering", defaultValue = "false") final boolean descending,
-      @ShellOption(value = {"--headeronly"}, help = "Print Header Only",
-              defaultValue = "false") final boolean headerOnly)
+      @CliOption(key = {"limit"}, help = "Limit commits", unspecifiedDefaultValue = "-1") final Integer limit,
+      @CliOption(key = {"sortBy"}, help = "Sorting Field", unspecifiedDefaultValue = "") final String sortByField,
+      @CliOption(key = {"desc"}, help = "Ordering", unspecifiedDefaultValue = "false") final boolean descending,
+      @CliOption(key = {"headeronly"}, help = "Print Header Only",
+          unspecifiedDefaultValue = "false") final boolean headerOnly)
       throws IOException {
 
     long totalRecordsUpserted = 0;
@@ -72,7 +75,7 @@ public class StatsCommand {
 
     List<Comparable[]> rows = new ArrayList<>();
     DecimalFormat df = new DecimalFormat("#.00");
-    for (HoodieInstant instantTime : timeline.getInstants()) {
+    for (HoodieInstant instantTime : timeline.getInstants().collect(Collectors.toList())) {
       String waf = "0";
       HoodieCommitMetadata commit = HoodieCommitMetadata.fromBytes(activeTimeline.getInstantDetails(instantTime).get(),
           HoodieCommitMetadata.class);
@@ -102,15 +105,15 @@ public class StatsCommand {
         s.getMax(), s.size(), s.getStdDev()};
   }
 
-  @ShellMethod(key = "stats filesizes", value = "File Sizes. Display summary stats on sizes of files")
+  @CliCommand(value = "stats filesizes", help = "File Sizes. Display summary stats on sizes of files")
   public String fileSizeStats(
-      @ShellOption(value = {"--partitionPath"}, help = "regex to select files, eg: 2016/08/02",
-          defaultValue = "*/*/*") final String globRegex,
-      @ShellOption(value = {"--limit"}, help = "Limit commits", defaultValue = "-1") final Integer limit,
-      @ShellOption(value = {"--sortBy"}, help = "Sorting Field", defaultValue = "") final String sortByField,
-      @ShellOption(value = {"--desc"}, help = "Ordering", defaultValue = "false") final boolean descending,
-      @ShellOption(value = {"--headeronly"}, help = "Print Header Only",
-              defaultValue = "false") final boolean headerOnly)
+      @CliOption(key = {"partitionPath"}, help = "regex to select files, eg: 2016/08/02",
+          unspecifiedDefaultValue = "*/*/*") final String globRegex,
+      @CliOption(key = {"limit"}, help = "Limit commits", unspecifiedDefaultValue = "-1") final Integer limit,
+      @CliOption(key = {"sortBy"}, help = "Sorting Field", unspecifiedDefaultValue = "") final String sortByField,
+      @CliOption(key = {"desc"}, help = "Ordering", unspecifiedDefaultValue = "false") final boolean descending,
+      @CliOption(key = {"headeronly"}, help = "Print Header Only",
+          unspecifiedDefaultValue = "false") final boolean headerOnly)
       throws IOException {
 
     FileSystem fs = HoodieCLI.fs;

@@ -27,8 +27,7 @@
     "type" : "string"
   }, {
      "name" : "partition_path",
-     "type" : ["null", "string"],
-     "default": null
+     "type" : "string"
   }, {
     "name" : "rider",
     "type" : "string"

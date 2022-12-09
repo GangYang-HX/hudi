@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hudi
 
-class TestPartialUpdateForMergeInto extends HoodieSparkSqlTestBase {
+class TestPartialUpdateForMergeInto extends TestHoodieSqlBase {
 
   test("Test Partial Update") {
     withTempDir { tmp =>

@@ -17,15 +17,10 @@
 # limitations under the License.
 
 SCRIPT_PATH=$(cd `dirname $0`; pwd)
-HUDI_DEMO_ENV=$1
 # set up root directory
 WS_ROOT=`dirname $SCRIPT_PATH`
-COMPOSE_FILE_NAME="docker-compose_hadoop284_hive233_spark244.yml"
-if [ "$HUDI_DEMO_ENV" = "--mac-aarch64" ]; then
-  COMPOSE_FILE_NAME="docker-compose_hadoop284_hive233_spark244_mac_aarch64.yml"
-fi
 # shut down cluster
-HUDI_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/compose/${COMPOSE_FILE_NAME} down
+HUDI_WS=${WS_ROOT} docker-compose -f ${SCRIPT_PATH}/compose/docker-compose_hadoop284_hive233_spark244.yml down
 
 # remove houst mount directory
 rm -rf /tmp/hadoop_data

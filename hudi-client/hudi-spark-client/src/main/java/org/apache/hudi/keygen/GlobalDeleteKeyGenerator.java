@@ -25,7 +25,6 @@ import org.apache.avro.generic.GenericRecord;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.types.StructType;
-import org.apache.spark.unsafe.types.UTF8String;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -41,12 +40,7 @@ public class GlobalDeleteKeyGenerator extends BuiltinKeyGenerator {
   public GlobalDeleteKeyGenerator(TypedProperties config) {
     super(config);
     this.recordKeyFields = Arrays.asList(config.getString(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key()).split(","));
-    this.globalAvroDeleteKeyGenerator = new GlobalAvroDeleteKeyGenerator(config);
-  }
-
-  @Override
-  public List<String> getPartitionPathFields() {
-    return new ArrayList<>();
+    globalAvroDeleteKeyGenerator = new GlobalAvroDeleteKeyGenerator(config);
   }
 
   @Override
@@ -60,15 +54,14 @@ public class GlobalDeleteKeyGenerator extends BuiltinKeyGenerator {
   }
 
   @Override
-  public String getRecordKey(Row row) {
-    tryInitRowAccessor(row.schema());
-    return combineCompositeRecordKey(rowAccessor.getRecordKeyParts(row));
+  public List<String> getPartitionPathFields() {
+    return new ArrayList<>();
   }
 
   @Override
-  public UTF8String getRecordKey(InternalRow internalRow, StructType schema) {
-    tryInitRowAccessor(schema);
-    return combineCompositeRecordKeyUnsafe(rowAccessor.getRecordKeyParts(internalRow));
+  public String getRecordKey(Row row) {
+    buildFieldPositionMapIfNeeded(row.schema());
+    return RowKeyGeneratorHelper.getRecordKeyFromRow(row, getRecordKeyFields(), recordKeyPositions, true);
   }
 
   @Override
@@ -77,8 +70,8 @@ public class GlobalDeleteKeyGenerator extends BuiltinKeyGenerator {
   }
 
   @Override
-  public UTF8String getPartitionPath(InternalRow row, StructType schema) {
-    return UTF8String.EMPTY_UTF8;
+  public String getPartitionPath(InternalRow row, StructType structType) {
+    return globalAvroDeleteKeyGenerator.getEmptyPartition();
   }
 }
 

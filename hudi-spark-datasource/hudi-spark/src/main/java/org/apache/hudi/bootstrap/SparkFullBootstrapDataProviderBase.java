@@ -60,9 +60,7 @@ public abstract class SparkFullBootstrapDataProviderBase extends FullRecordBoots
         .flatMap(f -> f.stream().map(fs -> FileStatusUtils.toPath(fs.getPath()).toString()))
         .toArray(String[]::new);
 
-    // NOTE: "basePath" option is required for spark to discover the partition column
-    // More details at https://spark.apache.org/docs/latest/sql-data-sources-parquet.html#partition-discovery
-    Dataset inputDataset = sparkSession.read().format(getFormat()).option("basePath", sourceBasePath).load(filePaths);
+    Dataset inputDataset = sparkSession.read().format(getFormat()).load(filePaths);
     try {
       KeyGenerator keyGenerator = HoodieSparkKeyGeneratorFactory.createKeyGenerator(props);
       String structName = tableName + "_record";

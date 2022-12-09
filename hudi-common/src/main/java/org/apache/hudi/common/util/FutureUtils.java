@@ -19,7 +19,6 @@
 package org.apache.hudi.common.util;
 
 import javax.annotation.Nonnull;
-
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;

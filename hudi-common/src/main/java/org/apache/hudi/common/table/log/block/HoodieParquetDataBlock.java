@@ -24,7 +24,7 @@ import org.apache.hudi.common.fs.inline.InLineFileSystem;
 import org.apache.hudi.common.util.ClosableIterator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ParquetReaderIterator;
-import org.apache.hudi.io.storage.HoodieParquetConfig;
+import org.apache.hudi.io.storage.HoodieAvroParquetConfig;
 import org.apache.hudi.io.storage.HoodieParquetStreamWriter;
 
 import org.apache.avro.Schema;
@@ -42,6 +42,8 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.hadoop.util.HadoopInputFile;
 import org.apache.parquet.io.InputFile;
 
+import javax.annotation.Nonnull;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
@@ -54,8 +56,6 @@ import java.util.Map;
 public class HoodieParquetDataBlock extends HoodieDataBlock {
 
   private final Option<CompressionCodecName> compressionCodecName;
-  private final Option<Double> expectedCompressionRatio;
-  private final Option<Boolean> useDictionaryEncoding;
 
   public HoodieParquetDataBlock(FSDataInputStream inputStream,
                                 Option<byte[]> content,
@@ -68,22 +68,17 @@ public class HoodieParquetDataBlock extends HoodieDataBlock {
     super(content, inputStream, readBlockLazily, Option.of(logBlockContentLocation), readerSchema, header, footer, keyField, false);
 
     this.compressionCodecName = Option.empty();
-    this.expectedCompressionRatio = Option.empty();
-    this.useDictionaryEncoding = Option.empty();
   }
 
-  public HoodieParquetDataBlock(List<IndexedRecord> records,
-                                Map<HeaderMetadataType, String> header,
-                                String keyField,
-                                CompressionCodecName compressionCodecName,
-                                double expectedCompressionRatio,
-                                boolean useDictionaryEncoding
+  public HoodieParquetDataBlock(
+      @Nonnull List<IndexedRecord> records,
+      @Nonnull Map<HeaderMetadataType, String> header,
+      @Nonnull String keyField,
+      @Nonnull CompressionCodecName compressionCodecName
   ) {
     super(records, header, new HashMap<>(), keyField);
 
     this.compressionCodecName = Option.of(compressionCodecName);
-    this.expectedCompressionRatio = Option.of(expectedCompressionRatio);
-    this.useDictionaryEncoding = Option.of(useDictionaryEncoding);
   }
 
   @Override
@@ -102,16 +97,15 @@ public class HoodieParquetDataBlock extends HoodieDataBlock {
     HoodieAvroWriteSupport writeSupport = new HoodieAvroWriteSupport(
         new AvroSchemaConverter().convert(writerSchema), writerSchema, Option.empty());
 
-    HoodieParquetConfig<HoodieAvroWriteSupport> avroParquetConfig =
-        new HoodieParquetConfig<>(
+    HoodieAvroParquetConfig avroParquetConfig =
+        new HoodieAvroParquetConfig(
             writeSupport,
             compressionCodecName.get(),
             ParquetWriter.DEFAULT_BLOCK_SIZE,
             ParquetWriter.DEFAULT_PAGE_SIZE,
             1024 * 1024 * 1024,
             new Configuration(),
-            expectedCompressionRatio.get(),
-            useDictionaryEncoding.get());
+            Double.parseDouble(String.valueOf(0.1)));//HoodieStorageConfig.PARQUET_COMPRESSION_RATIO.defaultValue()));
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
 

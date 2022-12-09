@@ -18,13 +18,12 @@
 
 package org.apache.hudi.integ.testsuite.generator;
 
-import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.utilities.testutils.UtilitiesTestBase;
+import static junit.framework.TestCase.assertEquals;
 
 import org.apache.avro.Schema;
+import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.utilities.testutils.UtilitiesTestBase;
 import org.junit.jupiter.api.Test;
-
-import static junit.framework.TestCase.assertEquals;
 
 /**
  * Unit test for {@link GenericRecordFullPayloadSizeEstimator}.
@@ -42,8 +41,8 @@ public class TestGenericRecordPayloadEstimator {
     GenericRecordFullPayloadSizeEstimator estimator =
         new GenericRecordFullPayloadSizeEstimator(schema);
     Pair<Integer, Integer> estimateAndNumComplexFields = estimator.typeEstimateAndNumComplexFields();
-    assertEquals(0, estimateAndNumComplexFields.getRight().intValue());
-    assertEquals(157, estimateAndNumComplexFields.getLeft().intValue());
+    assertEquals(estimateAndNumComplexFields.getRight().intValue(), 0);
+    assertEquals(estimateAndNumComplexFields.getLeft().intValue(), 156);
   }
 
   @Test

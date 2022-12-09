@@ -22,7 +22,6 @@ import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
 import org.apache.hudi.cli.HoodieTableHeaderFields;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
-import org.apache.hudi.cli.testutils.ShellEvaluationResultUtil;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
@@ -31,9 +30,7 @@ import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.io.IOException;
 import java.util.Comparator;
@@ -46,11 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Test class for {@link org.apache.hudi.cli.commands.SavepointsCommand}.
  */
 @Tag("functional")
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
 public class TestSavepointsCommand extends CLIFunctionalTestHarness {
-
-  @Autowired
-  private Shell shell;
 
   private String tablePath;
 
@@ -76,15 +69,15 @@ public class TestSavepointsCommand extends CLIFunctionalTestHarness {
       HoodieTestDataGenerator.createSavepointFile(tablePath, instantTime, hadoopConf());
     }
 
-    Object result = shell.evaluate(() -> "savepoints show");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    CommandResult cr = shell().executeCommand("savepoints show");
+    assertTrue(cr.isSuccess());
 
     // generate expect result
     String[][] rows = Stream.of("100", "101", "102", "103").sorted(Comparator.reverseOrder())
-        .map(instant -> new String[] {instant}).toArray(String[][]::new);
+        .map(instant -> new String[]{instant}).toArray(String[][]::new);
     String expected = HoodiePrintHelper.print(new String[] {HoodieTableHeaderFields.HEADER_SAVEPOINT_TIME}, rows);
     expected = removeNonWordAndStripSpace(expected);
-    String got = removeNonWordAndStripSpace(result.toString());
+    String got = removeNonWordAndStripSpace(cr.getResult().toString());
     assertEquals(expected, got);
   }
 
@@ -108,8 +101,8 @@ public class TestSavepointsCommand extends CLIFunctionalTestHarness {
         HoodieCLI.getTableMetaClient().getActiveTimeline().getSavePointTimeline().filterCompletedInstants();
     assertEquals(0, timeline.countInstants(), "there should have no instant");
 
-    Object result = shell.evaluate(() -> "savepoints refresh");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    CommandResult cr = shell().executeCommand("savepoints refresh");
+    assertTrue(cr.isSuccess());
 
     timeline =
         HoodieCLI.getTableMetaClient().getActiveTimeline().getSavePointTimeline().filterCompletedInstants();

@@ -30,10 +30,10 @@ import org.apache.spark.sql.SparkSession;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -116,7 +116,6 @@ public class HoodieMultiWriterTestSuiteJob {
     }
 
     ExecutorService executor = Executors.newFixedThreadPool(inputPaths.length);
-    Random random = new Random();
 
     List<HoodieTestSuiteJob.HoodieTestSuiteConfig> testSuiteConfigList = new ArrayList<>();
     int jobIndex = 0;
@@ -132,20 +131,11 @@ public class HoodieMultiWriterTestSuiteJob {
 
     AtomicBoolean jobFailed = new AtomicBoolean(false);
     AtomicInteger counter = new AtomicInteger(0);
-    List<Long> waitTimes = new ArrayList<>();
-    for (int i = 0; i < jobIndex; i++) {
-      if (i == 0) {
-        waitTimes.add(0L);
-      } else {
-        // every job after 1st, will start after 1 min + some delta.
-        waitTimes.add(60000L + random.nextInt(10000));
-      }
-    }
     List<CompletableFuture<Boolean>> completableFutureList = new ArrayList<>();
     testSuiteConfigList.forEach(hoodieTestSuiteConfig -> {
       try {
         // start each job at 20 seconds interval so that metaClient instantiation does not overstep
-        Thread.sleep(waitTimes.get(counter.get()));
+        Thread.sleep(counter.get() * 20000);
         LOG.info("Starting job " + hoodieTestSuiteConfig.toString());
       } catch (InterruptedException e) {
         e.printStackTrace();

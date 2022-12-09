@@ -35,9 +35,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Operations of schema changes supported in schema evolution
- */
 public class TableChanges {
 
   /** Deal with update columns changes for table. */

@@ -48,6 +48,7 @@ import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.CompactionUtils;
 import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.TraceUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieCommitException;
@@ -72,18 +73,17 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.GREATER_THAN;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.LESSER_THAN;
 import static org.apache.hudi.common.table.timeline.HoodieTimeline.LESSER_THAN_OR_EQUALS;
-import static org.apache.hudi.common.table.timeline.HoodieTimeline.compareTimestamps;
 
 /**
  * Archiver to bound the growth of files under .hoodie meta path.
@@ -174,7 +174,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
         LOG.info("No Instants to archive");
       }
 
-      if (shouldMergeSmallArchiveFiles()) {
+      if (shouldMergeSmallArchiveFies()) {
         mergeArchiveFilesIfNecessary(context);
       }
       return success;
@@ -186,7 +186,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
     }
   }
 
-  public boolean shouldMergeSmallArchiveFiles() {
+  public boolean shouldMergeSmallArchiveFies() {
     return config.getArchiveMergeEnable() && !StorageSchemes.isAppendSupported(metaClient.getFs().getScheme());
   }
 
@@ -226,7 +226,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
       // after merge, delete the small archive files.
       deleteFilesParallelize(metaClient, candidateFiles, context, true);
       LOG.info("Success to delete replaced small archive files.");
-      // finally, delete archiveMergePlan which means merging small archive files operation is successful.
+      // finally, delete archiveMergePlan which means merging small archive files operation is succeed.
       metaClient.getFs().delete(planPath, false);
       LOG.info("Success to merge small archive files.");
     }
@@ -265,7 +265,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
    * @throws IOException
    */
   private void verifyLastMergeArchiveFilesIfNecessary(HoodieEngineContext context) throws IOException {
-    if (shouldMergeSmallArchiveFiles()) {
+    if (shouldMergeSmallArchiveFies()) {
       Path planPath = new Path(metaClient.getArchivePath(), HoodieArchivedTimeline.MERGE_ARCHIVE_PLAN_NAME);
       HoodieWrapperFileSystem fs = metaClient.getFs();
       // If plan exist, last merge small archive files was failed.
@@ -385,7 +385,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
   private Stream<HoodieInstant> getCleanInstantsToArchive() {
     HoodieTimeline cleanAndRollbackTimeline = table.getActiveTimeline()
         .getTimelineOfActions(CollectionUtils.createSet(HoodieTimeline.CLEAN_ACTION, HoodieTimeline.ROLLBACK_ACTION)).filterCompletedInstants();
-    return cleanAndRollbackTimeline.getInstantsAsStream()
+    return cleanAndRollbackTimeline.getInstants()
         .collect(Collectors.groupingBy(HoodieInstant::getAction)).values().stream()
         .map(hoodieInstants -> {
           if (hoodieInstants.size() > this.maxInstantsToKeep) {
@@ -411,11 +411,9 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
             .getTimelineOfActions(CollectionUtils.createSet(HoodieTimeline.COMMIT_ACTION, HoodieTimeline.DELTA_COMMIT_ACTION))
             .filterInflights().firstInstant();
 
-    // NOTE: We cannot have any holes in the commit timeline.
-    // We cannot archive any commits which are made after the first savepoint present,
-    // unless HoodieArchivalConfig#ARCHIVE_BEYOND_SAVEPOINT is enabled.
+    // We cannot have any holes in the commit timeline. We cannot archive any commits which are
+    // made after the first savepoint present.
     Option<HoodieInstant> firstSavepoint = table.getCompletedSavepointTimeline().firstInstant();
-    Set<String> savepointTimestamps = table.getSavepointTimestamps();
     if (!commitTimeline.empty() && commitTimeline.countInstants() > maxInstantsToKeep) {
       // For Merge-On-Read table, inline or async compaction is enabled
       // We need to make sure that there are enough delta commits in the active timeline
@@ -430,35 +428,30 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
               : Option.empty();
 
       // Actually do the commits
-      Stream<HoodieInstant> instantToArchiveStream = commitTimeline.getInstantsAsStream()
+      Stream<HoodieInstant> instantToArchiveStream = commitTimeline.getInstants()
           .filter(s -> {
-            if (config.shouldArchiveBeyondSavepoint()) {
-              // skip savepoint commits and proceed further
-              return !savepointTimestamps.contains(s.getTimestamp());
-            } else {
-              // if no savepoint present, then don't filter
-              // stop at first savepoint commit
-              return !(firstSavepoint.isPresent() && compareTimestamps(firstSavepoint.get().getTimestamp(), LESSER_THAN_OR_EQUALS, s.getTimestamp()));
-            }
+            // if no savepoint present, then don't filter
+            return !(firstSavepoint.isPresent() && HoodieTimeline.compareTimestamps(firstSavepoint.get().getTimestamp(), LESSER_THAN_OR_EQUALS, s.getTimestamp()));
           }).filter(s -> {
             // Ensure commits >= oldest pending compaction commit is retained
             return oldestPendingCompactionAndReplaceInstant
-                .map(instant -> compareTimestamps(instant.getTimestamp(), GREATER_THAN, s.getTimestamp()))
+                .map(instant -> HoodieTimeline.compareTimestamps(instant.getTimestamp(), GREATER_THAN, s.getTimestamp()))
                 .orElse(true);
           }).filter(s -> {
             // We need this to ensure that when multiple writers are performing conflict resolution, eligible instants don't
             // get archived, i.e, instants after the oldestInflight are retained on the timeline
             if (config.getFailedWritesCleanPolicy() == HoodieFailedWritesCleaningPolicy.LAZY) {
               return oldestInflightCommitInstant.map(instant ->
-                      compareTimestamps(instant.getTimestamp(), GREATER_THAN, s.getTimestamp()))
+                      HoodieTimeline.compareTimestamps(instant.getTimestamp(), GREATER_THAN, s.getTimestamp()))
                   .orElse(true);
             }
             return true;
           }).filter(s ->
               oldestInstantToRetainForCompaction.map(instantToRetain ->
-                      compareTimestamps(s.getTimestamp(), LESSER_THAN, instantToRetain.getTimestamp()))
+                      HoodieTimeline.compareTimestamps(s.getTimestamp(), LESSER_THAN, instantToRetain.getTimestamp()))
                   .orElse(true)
           );
+
       return instantToArchiveStream.limit(commitTimeline.countInstants() - minInstantsToKeep);
     } else {
       return Stream.empty();
@@ -467,13 +460,10 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
 
   private Stream<HoodieInstant> getInstantsToArchive() {
     Stream<HoodieInstant> instants = Stream.concat(getCleanInstantsToArchive(), getCommitInstantsToArchive());
-    if (config.isMetastoreEnabled()) {
-      return Stream.empty();
-    }
 
     // For archiving and cleaning instants, we need to include intermediate state files if they exist
     HoodieActiveTimeline rawActiveTimeline = new HoodieActiveTimeline(metaClient, false);
-    Map<Pair<String, String>, List<HoodieInstant>> groupByTsAction = rawActiveTimeline.getInstantsAsStream()
+    Map<Pair<String, String>, List<HoodieInstant>> groupByTsAction = rawActiveTimeline.getInstants()
         .collect(Collectors.groupingBy(i -> Pair.of(i.getTimestamp(),
             HoodieInstant.getComparableAction(i.getAction()))));
 
@@ -488,7 +478,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
           instants = Stream.empty();
         } else {
           LOG.info("Limiting archiving of instants to latest compaction on metadata table at " + latestCompactionTime.get());
-          instants = instants.filter(instant -> compareTimestamps(instant.getTimestamp(), LESSER_THAN,
+          instants = instants.filter(instant -> HoodieTimeline.compareTimestamps(instant.getTimestamp(), HoodieTimeline.LESSER_THAN,
               latestCompactionTime.get()));
         }
       } catch (Exception e) {
@@ -496,29 +486,18 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
       }
     }
 
+    // If this is a metadata table, do not archive the commits that live in data set
+    // active timeline. This is required by metadata table,
+    // see HoodieTableMetadataUtil#processRollbackMetadata for details.
     if (HoodieTableMetadata.isMetadataTable(config.getBasePath())) {
       HoodieTableMetaClient dataMetaClient = HoodieTableMetaClient.builder()
           .setBasePath(HoodieTableMetadata.getDatasetBasePath(config.getBasePath()))
           .setConf(metaClient.getHadoopConf())
           .build();
-      Option<HoodieInstant> earliestActiveDatasetCommit = dataMetaClient.getActiveTimeline().firstInstant();
-
-      if (config.shouldArchiveBeyondSavepoint()) {
-        // There are chances that there could be holes in the timeline due to archival and savepoint interplay.
-        // So, the first non-savepoint commit in the data timeline is considered as beginning of the active timeline.
-        Option<HoodieInstant> firstNonSavepointCommit = dataMetaClient.getActiveTimeline().getFirstNonSavepointCommit();
-        if (firstNonSavepointCommit.isPresent()) {
-          String firstNonSavepointCommitTime = firstNonSavepointCommit.get().getTimestamp();
-          instants = instants.filter(instant ->
-              compareTimestamps(instant.getTimestamp(), LESSER_THAN, firstNonSavepointCommitTime));
-        }
-      } else {
-        // Do not archive the commits that live in data set active timeline.
-        // This is required by metadata table, see HoodieTableMetadataUtil#processRollbackMetadata for details.
-        if (earliestActiveDatasetCommit.isPresent()) {
-          instants = instants.filter(instant ->
-              compareTimestamps(instant.getTimestamp(), HoodieTimeline.LESSER_THAN, earliestActiveDatasetCommit.get().getTimestamp()));
-        }
+      Option<String> earliestActiveDatasetCommit = dataMetaClient.getActiveTimeline().firstInstant().map(HoodieInstant::getTimestamp);
+      if (earliestActiveDatasetCommit.isPresent()) {
+        instants = instants.filter(instant ->
+            HoodieTimeline.compareTimestamps(instant.getTimestamp(), HoodieTimeline.LESSER_THAN, earliestActiveDatasetCommit.get()));
       }
     }
 
@@ -529,46 +508,25 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
         return instantsToStream.stream();
       } else {
         // if a concurrent writer archived the instant
-        return Stream.empty();
+        return Collections.EMPTY_LIST.stream();
       }
     });
   }
 
   private boolean deleteArchivedInstants(List<HoodieInstant> archivedInstants, HoodieEngineContext context) throws IOException {
     LOG.info("Deleting instants " + archivedInstants);
+    boolean success = true;
+    List<String> instantFiles = archivedInstants.stream().map(archivedInstant ->
+        new Path(metaClient.getMetaPath(), archivedInstant.getFileName())
+    ).map(Path::toString).collect(Collectors.toList());
 
-    List<HoodieInstant> pendingInstants = new ArrayList<>();
-    List<HoodieInstant> completedInstants = new ArrayList<>();
+    context.setJobStatus(this.getClass().getSimpleName(), "Delete archived instants");
+    Map<String, Boolean> resultDeleteInstantFiles = deleteFilesParallelize(metaClient, instantFiles, context, false);
 
-    for (HoodieInstant instant : archivedInstants) {
-      if (instant.isCompleted()) {
-        completedInstants.add(instant);
-      } else {
-        pendingInstants.add(instant);
-      }
-    }
-
-    context.setJobStatus(this.getClass().getSimpleName(), "Delete archived instants: " + config.getTableName());
-    // Delete the metadata files
-    // in HoodieInstant.State sequence: requested -> inflight -> completed,
-    // this is important because when a COMPLETED metadata file is removed first,
-    // other monitors on the timeline(such as the compaction or clustering services) would
-    // mistakenly recognize the pending file as a pending operation,
-    // then all kinds of weird bugs occur.
-    HoodieActiveTimeline activeTimeline = metaClient.getActiveTimeline();
-    if (!pendingInstants.isEmpty()) {
-      context.foreach(
-          pendingInstants,
-          instant -> activeTimeline.deleteInstantFileIfExists(instant),
-          Math.min(pendingInstants.size(), config.getArchiveDeleteParallelism())
-      );
-    }
-    if (!completedInstants.isEmpty()) {
-      context.foreach(
-          completedInstants,
-          instant -> activeTimeline.deleteInstantFileIfExists(instant),
-          Math.min(completedInstants.size(), config.getArchiveDeleteParallelism())
-      );
+    for (Map.Entry<String, Boolean> result : resultDeleteInstantFiles.entrySet()) {
+      LOG.info("Archived and deleted instant file " + result.getKey() + " : " + result.getValue());
+      LOG.info(TraceUtils.getMetaFileArchiveDeleteTrace(result.getKey()));
+      success &= result.getValue();
     }
 
     // Remove older meta-data from auxiliary path too
@@ -576,9 +534,9 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
         || (i.getAction().equals(HoodieTimeline.DELTA_COMMIT_ACTION)))).max(Comparator.comparing(HoodieInstant::getTimestamp)));
     LOG.info("Latest Committed Instant=" + latestCommitted);
     if (latestCommitted.isPresent()) {
-      return deleteAllInstantsOlderOrEqualsInAuxMetaFolder(latestCommitted.get());
+      success &= deleteAllInstantsOlderOrEqualsInAuxMetaFolder(latestCommitted.get());
     }
-    return true;
+    return success;
   }
 
   /**
@@ -611,7 +569,7 @@ public class HoodieTimelineArchiver<T extends HoodieAvroPayload, I, K, O> {
     }
 
     List<HoodieInstant> instantsToBeDeleted =
-        instants.stream().filter(instant1 -> compareTimestamps(instant1.getTimestamp(),
+        instants.stream().filter(instant1 -> HoodieTimeline.compareTimestamps(instant1.getTimestamp(),
             LESSER_THAN_OR_EQUALS, thresholdInstant.getTimestamp())).collect(Collectors.toList());
 
     for (HoodieInstant deleteInstant : instantsToBeDeleted) {

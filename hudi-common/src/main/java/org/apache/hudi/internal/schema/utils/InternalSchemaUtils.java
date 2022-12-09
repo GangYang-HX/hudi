@@ -30,9 +30,9 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.SortedMap;
 import java.util.TreeMap;
+import java.util.SortedMap;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -94,7 +94,7 @@ public class InternalSchemaUtils {
         }
       }
     }
-    return new InternalSchema(newFields.isEmpty() ? recordType : Types.RecordType.get(newFields));
+    return new InternalSchema(newFields.isEmpty() ? recordType.fields() : newFields);
   }
 
   /**
@@ -273,7 +273,7 @@ public class InternalSchemaUtils {
    *
    * @param oldSchema oldSchema
    * @param newSchema newSchema which modified from oldSchema
-   * @return renameCols Map. (k, v) -> (colNameFromNewSchema, colNameLastPartFromOldSchema)
+   * @return renameCols Map. (k, v) -> (colNameFromNewSchema, colNameFromOldSchema)
    */
   public static Map<String, String> collectRenameCols(InternalSchema oldSchema, InternalSchema newSchema) {
     List<String> colNamesFromWriteSchema = oldSchema.getAllColsFullName();
@@ -281,9 +281,6 @@ public class InternalSchemaUtils {
       int filedIdFromWriteSchema = oldSchema.findIdByName(f);
       // try to find the cols which has the same id, but have different colName;
       return newSchema.getAllIds().contains(filedIdFromWriteSchema) && !newSchema.findfullName(filedIdFromWriteSchema).equalsIgnoreCase(f);
-    }).collect(Collectors.toMap(e -> newSchema.findfullName(oldSchema.findIdByName(e)), e -> {
-      int lastDotIndex = e.lastIndexOf(".");
-      return e.substring(lastDotIndex == -1 ? 0 : lastDotIndex + 1);
-    }));
+    }).collect(Collectors.toMap(e -> newSchema.findfullName(oldSchema.findIdByName(e)), e -> e));
   }
 }

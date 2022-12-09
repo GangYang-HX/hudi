@@ -18,7 +18,6 @@
 
 package org.apache.hudi.table;
 
-import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.table.format.mor.MergeOnReadInputFormat;
 import org.apache.hudi.utils.TestConfigurations;
@@ -29,10 +28,6 @@ import org.apache.flink.api.common.io.FileInputFormat;
 import org.apache.flink.api.common.io.InputFormat;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.expressions.CallExpression;
-import org.apache.flink.table.expressions.ResolvedExpression;
-import org.apache.flink.table.functions.BuiltInFunctionDefinitions;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.ThrowingSupplier;
@@ -43,8 +38,8 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -52,7 +47,6 @@ import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.core.Is.is;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -82,18 +76,23 @@ public class TestHoodieTableSource {
         Arrays.asList(conf.getString(FlinkOptions.PARTITION_PATH_FIELD).split(",")),
         "default-par",
         conf);
-    FileStatus[] fileStatuses = tableSource.getReadFiles();
-    assertNotNull(fileStatuses);
-    assertThat(fileStatuses.length, is(4));
+    Path[] paths = tableSource.getReadPaths();
+    assertNotNull(paths);
+    String[] names = Arrays.stream(paths).map(Path::getName)
+        .sorted(Comparator.naturalOrder()).toArray(String[]::new);
+    assertThat(Arrays.toString(names), is("[par1, par2, par3, par4]"));
     // apply partition pruning
     Map<String, String> partitions = new HashMap<>();
     partitions.put("partition", "par1");
 
     tableSource.applyPartitions(Collections.singletonList(partitions));
 
-    FileStatus[] fileStatuses2 = tableSource.getReadFiles();
-    assertNotNull(fileStatuses2);
-    assertThat(fileStatuses2.length, is(1));
+    Path[] paths2 = tableSource.getReadPaths();
+    assertNotNull(paths2);
+    String[] names2 = Arrays.stream(paths2).map(Path::getName)
+        .sorted(Comparator.naturalOrder()).toArray(String[]::new);
+    assertThat(Arrays.toString(names2), is("[par1]"));
+    assertThat(tableSource.getNumberOfFilesInPartitions(), is(4));
   }
 
   @Test
@@ -121,7 +120,16 @@ public class TestHoodieTableSource {
 
   @Test
   void testGetTableAvroSchema() {
-    HoodieTableSource tableSource = getEmptyStreamingSource();
+    final String path = tempFile.getAbsolutePath();
+    conf = TestConfigurations.getDefaultConf(path);
+    conf.setBoolean(FlinkOptions.READ_AS_STREAMING, true);
+
+    HoodieTableSource tableSource = new HoodieTableSource(
+        TestConfigurations.TABLE_SCHEMA,
+        new Path(tempFile.getPath()),
+        Arrays.asList(conf.getString(FlinkOptions.PARTITION_PATH_FIELD).split(",")),
+        "default-par",
+        conf);
     assertNull(tableSource.getMetaClient(), "Streaming source with empty table path is allowed");
     final String schemaFields = tableSource.getTableAvroSchema().getFields().stream()
         .map(Schema.Field::name)
@@ -133,40 +141,5 @@ public class TestHoodieTableSource {
         + "_hoodie_file_name,"
         + "uuid,name,age,ts,partition";
     assertThat(schemaFields, is(expected));
-  }
-
-  @Test
-  void testDataSkippingFilterShouldBeNotNullWhenTableSourceIsCopied() {
-    HoodieTableSource tableSource = getEmptyStreamingSource();
-    ResolvedExpression mockExpression = new CallExpression(
-        BuiltInFunctionDefinitions.IN,
-        Collections.emptyList(),
-        TestConfigurations.ROW_DATA_TYPE);
-    List<ResolvedExpression> expectedFilters = Collections.singletonList(mockExpression);
-    tableSource.applyFilters(expectedFilters);
-    HoodieTableSource copiedSource = (HoodieTableSource) tableSource.copy();
-    List<ResolvedExpression> actualFilters = copiedSource.getFileIndex().getFilters();
-    assertEquals(expectedFilters, actualFilters);
-  }
-
-  @Test
-  void testHoodieSourceCachedMetaClient() {
-    HoodieTableSource tableSource = getEmptyStreamingSource();
-    HoodieTableMetaClient metaClient = tableSource.getMetaClient();
-    HoodieTableSource tableSourceCopy = (HoodieTableSource) tableSource.copy();
-    assertThat(metaClient, is(tableSourceCopy.getMetaClient()));
-  }
-
-  private HoodieTableSource getEmptyStreamingSource() {
-    final String path = tempFile.getAbsolutePath();
-    conf = TestConfigurations.getDefaultConf(path);
-    conf.setBoolean(FlinkOptions.READ_AS_STREAMING, true);
-
-    return new HoodieTableSource(
-        TestConfigurations.TABLE_SCHEMA,
-        new Path(tempFile.getPath()),
-        Arrays.asList(conf.getString(FlinkOptions.PARTITION_PATH_FIELD).split(",")),
-        "default-par",
-        conf);
   }
 }

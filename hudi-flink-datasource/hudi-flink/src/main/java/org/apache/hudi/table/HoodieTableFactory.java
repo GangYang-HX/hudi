@@ -19,15 +19,21 @@
 package org.apache.hudi.table;
 
 import org.apache.hudi.common.model.DefaultHoodieRecordPayload;
-import org.apache.hudi.common.util.StringUtils;
+import org.apache.hudi.common.model.EventTimeAvroPayload;
+import org.apache.hudi.common.model.WriteOperationType;
+import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.configuration.OptionsResolver;
+import org.apache.hudi.configuration.SetupOptions;
+import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieValidationException;
+import org.apache.hudi.hive.MultiPartKeysValueExtractor;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
 import org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator;
 import org.apache.hudi.keygen.TimestampBasedAvroKeyGenerator;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
+import org.apache.hudi.table.catalog.BilibiliCatalogConstant;
 import org.apache.hudi.util.AvroSchemaConverter;
 import org.apache.hudi.util.DataTypeUtils;
 
@@ -36,7 +42,6 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.api.ValidationException;
 import org.apache.flink.table.api.constraints.UniqueConstraint;
 import org.apache.flink.table.catalog.CatalogTable;
-import org.apache.flink.table.catalog.ObjectIdentifier;
 import org.apache.flink.table.catalog.ResolvedSchema;
 import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.source.DynamicTableSource;
@@ -52,10 +57,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
-
-import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 
 /**
  * Hoodie data source/sink factory.
@@ -70,7 +71,7 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
     Configuration conf = FlinkOptions.fromMap(context.getCatalogTable().getOptions());
     ResolvedSchema schema = context.getCatalogTable().getResolvedSchema();
     sanityCheck(conf, schema);
-    setupConfOptions(conf, context.getObjectIdentifier(), context.getCatalogTable(), schema);
+    setupConfOptions(conf, context.getCatalogTable(), schema);
 
     Path path = new Path(conf.getOptional(FlinkOptions.PATH).orElseThrow(() ->
         new ValidationException("Option [path] should not be empty.")));
@@ -85,11 +86,9 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
   @Override
   public DynamicTableSink createDynamicTableSink(Context context) {
     Configuration conf = FlinkOptions.fromMap(context.getCatalogTable().getOptions());
-    checkArgument(!StringUtils.isNullOrEmpty(conf.getString(FlinkOptions.PATH)),
-        "Option [path] should not be empty.");
     ResolvedSchema schema = context.getCatalogTable().getResolvedSchema();
     sanityCheck(conf, schema);
-    setupConfOptions(conf, context.getObjectIdentifier(), context.getCatalogTable(), schema);
+    setupConfOptions(conf, context.getCatalogTable(), schema);
     return new HoodieTableSink(conf, schema);
   }
 
@@ -149,40 +148,73 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
       }
       if (preCombineField.equals(FlinkOptions.PRECOMBINE_FIELD.defaultValue())) {
         conf.setString(FlinkOptions.PRECOMBINE_FIELD, FlinkOptions.NO_PRE_COMBINE);
-      } else if (!preCombineField.equals(FlinkOptions.NO_PRE_COMBINE)) {
+      } else {
         throw new HoodieValidationException("Field " + preCombineField + " does not exist in the table schema."
             + "Please check '" + FlinkOptions.PRECOMBINE_FIELD.key() + "' option.");
       }
+    } else if (FlinkOptions.isDefaultValueDefined(conf, FlinkOptions.PAYLOAD_CLASS_NAME)) {
+      // if precombine field is specified but payload clazz is default,
+      // use DefaultHoodieRecordPayload to make sure the precombine field is always taken for
+      // comparing.
+      conf.setString(FlinkOptions.PAYLOAD_CLASS_NAME, EventTimeAvroPayload.class.getName());
     }
   }
 
   /**
-   * Sets up the config options based on the table definition, for e.g, the table name, primary key.
+   * Sets up the config options based on the table definition, for e.g the table name, primary key.
    *
-   * @param conf      The configuration to set up
-   * @param tablePath The table path
+   * @param conf      The configuration to setup
    * @param table     The catalog table
    * @param schema    The physical schema
    */
   private static void setupConfOptions(
       Configuration conf,
-      ObjectIdentifier tablePath,
       CatalogTable table,
       ResolvedSchema schema) {
-    // table name
-    conf.setString(FlinkOptions.TABLE_NAME.key(), tablePath.getObjectName());
+    // common options
+    setupCommonOptions(conf, table);
     // hoodie key about options
     setupHoodieKeyOptions(conf, table);
     // compaction options
     setupCompactionOptions(conf);
     // hive options
-    setupHiveOptions(conf, tablePath);
+    setupHiveOptions(conf, table);
     // read options
     setupReadOptions(conf);
     // write options
     setupWriteOptions(conf);
+    // other options
+    setupOtherOptions(conf);
     // infer avro schema from physical DDL schema
     inferAvroSchema(conf, schema.toPhysicalRowDataType().notNull().getLogicalType());
+  }
+
+  private static void setupCommonOptions(Configuration conf, CatalogTable table) {
+    // table name
+    String tableName = table.getOptions().getOrDefault(BilibiliCatalogConstant.TABLE_FULL_NAME, BilibiliCatalogConstant.UNKNOWN);
+    conf.setString(FlinkOptions.TABLE_NAME.key(), tableName);
+    // path
+    String path = conf.getOptional(FlinkOptions.PATH).orElseGet(() -> table.getOptions().get(BilibiliCatalogConstant.LOCATION));
+    conf.setString(FlinkOptions.PATH, path);
+    LOG.info("table path is: {}", path);
+  }
+
+  public static void setupOtherOptions(Configuration conf) {
+    String clazz = conf.getString(FlinkOptions.OTHER_SETUP_OPTION_CLASS_NAME);
+    if (clazz != null) {
+      try {
+        SetupOptions setupOptions = ReflectionUtils.loadClass(clazz);
+        setupOptions.setupOptions(conf);
+      } catch (HoodieException e) {
+        if (e.getCause().getMessage().contains(
+                FlinkOptions.OTHER_SETUP_OPTION_CLASS_NAME.defaultValue())) {
+          // The class of default value for 'config.other_setup_option_class' is defined in hudi-flink-bilibili.
+          LOG.error(e.getCause().getMessage(), e);
+        } else {
+          throw e;
+        }
+      }
+    }
   }
 
   /**
@@ -202,21 +234,10 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
       conf.setString(FlinkOptions.PARTITION_PATH_FIELD, String.join(",", partitionKeys));
     }
     // set index key for bucket index if not defined
-    if (conf.getString(FlinkOptions.INDEX_TYPE).equals(HoodieIndex.IndexType.BUCKET.name())) {
-      if (conf.getString(FlinkOptions.INDEX_KEY_FIELD).isEmpty()) {
-        conf.setString(FlinkOptions.INDEX_KEY_FIELD, conf.getString(FlinkOptions.RECORD_KEY_FIELD));
-      } else {
-        Set<String> recordKeySet =
-            Arrays.stream(conf.getString(FlinkOptions.RECORD_KEY_FIELD).split(",")).collect(Collectors.toSet());
-        Set<String> indexKeySet =
-            Arrays.stream(conf.getString(FlinkOptions.INDEX_KEY_FIELD).split(",")).collect(Collectors.toSet());
-        if (!recordKeySet.containsAll(indexKeySet)) {
-          throw new HoodieValidationException(
-              FlinkOptions.INDEX_KEY_FIELD + " should be a subset of or equal to the recordKey fields");
-        }
-      }
+    if (conf.getString(FlinkOptions.INDEX_TYPE).equals(HoodieIndex.IndexType.BUCKET.name())
+        && conf.getString(FlinkOptions.INDEX_KEY_FIELD).isEmpty()) {
+      conf.setString(FlinkOptions.INDEX_KEY_FIELD, conf.getString(FlinkOptions.RECORD_KEY_FIELD));
     }
-
     // tweak the key gen class if possible
     final String[] partitions = conf.getString(FlinkOptions.PARTITION_PATH_FIELD).split(",");
     final String[] pks = conf.getString(FlinkOptions.RECORD_KEY_FIELD).split(",");
@@ -250,11 +271,6 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
    * <p>The UTC timezone is used as default.
    */
   public static void setupTimestampKeygenOptions(Configuration conf, DataType fieldType) {
-    if (conf.contains(FlinkOptions.KEYGEN_CLASS_NAME)) {
-      // the keygen clazz has been set up explicitly, skipping
-      return;
-    }
-
     conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, TimestampBasedAvroKeyGenerator.class.getName());
     LOG.info("Table option [{}] is reset to {} because datetime partitioning turns on",
         FlinkOptions.KEYGEN_CLASS_NAME.key(), TimestampBasedAvroKeyGenerator.class.getName());
@@ -269,17 +285,13 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
         conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_TYPE_FIELD_PROP,
             TimestampBasedAvroKeyGenerator.TimestampType.EPOCHMILLISECONDS.name());
       }
-      String outputPartitionFormat = conf.getOptional(FlinkOptions.PARTITION_FORMAT).orElse(FlinkOptions.PARTITION_FORMAT_HOUR);
-      conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_OUTPUT_DATE_FORMAT_PROP, outputPartitionFormat);
+      String partitionFormat = conf.getOptional(FlinkOptions.PARTITION_FORMAT).orElse(FlinkOptions.PARTITION_FORMAT_HOUR);
+      conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_OUTPUT_DATE_FORMAT_PROP, partitionFormat);
     } else {
       conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_TYPE_FIELD_PROP,
-          TimestampBasedAvroKeyGenerator.TimestampType.SCALAR.name());
-      conf.setString(KeyGeneratorOptions.Config.INPUT_TIME_UNIT, TimeUnit.DAYS.toString());
-
-      String outputPartitionFormat = conf.getOptional(FlinkOptions.PARTITION_FORMAT).orElse(FlinkOptions.PARTITION_FORMAT_DAY);
-      conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_OUTPUT_DATE_FORMAT_PROP, outputPartitionFormat);
-      // the option is actually useless, it only works for validation
-      conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_INPUT_DATE_FORMAT_PROP, FlinkOptions.PARTITION_FORMAT_DAY);
+          TimestampBasedAvroKeyGenerator.TimestampType.DATE_STRING.name());
+      String partitionFormat = conf.getOptional(FlinkOptions.PARTITION_FORMAT).orElse(FlinkOptions.PARTITION_FORMAT_DAY);
+      conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_OUTPUT_DATE_FORMAT_PROP, partitionFormat);
     }
     conf.setString(KeyGeneratorOptions.Config.TIMESTAMP_OUTPUT_TIMEZONE_FORMAT_PROP, "UTC");
   }
@@ -303,12 +315,22 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
   /**
    * Sets up the hive options from the table definition.
    */
-  private static void setupHiveOptions(Configuration conf, ObjectIdentifier tablePath) {
-    if (!conf.contains(FlinkOptions.HIVE_SYNC_DB)) {
-      conf.setString(FlinkOptions.HIVE_SYNC_DB, tablePath.getDatabaseName());
+  private static void setupHiveOptions(Configuration conf, CatalogTable table) {
+    if (FlinkOptions.isDefaultValueDefined(conf, FlinkOptions.HIVE_SYNC_DB)) {
+      conf.setString(FlinkOptions.HIVE_SYNC_DB, table.getOptions().getOrDefault(BilibiliCatalogConstant.TABLE_DATABASE, FlinkOptions.HIVE_SYNC_DB.defaultValue()));
     }
-    if (!conf.contains(FlinkOptions.HIVE_SYNC_TABLE)) {
-      conf.setString(FlinkOptions.HIVE_SYNC_TABLE, tablePath.getObjectName());
+    if (FlinkOptions.isDefaultValueDefined(conf, FlinkOptions.HIVE_SYNC_TABLE)) {
+      conf.setString(FlinkOptions.HIVE_SYNC_TABLE, table.getOptions().getOrDefault(BilibiliCatalogConstant.TABLE_NAME, FlinkOptions.HIVE_SYNC_TABLE.defaultValue()));
+    }
+    List<String> partitionKeys = table.getPartitionKeys();
+    if (partitionKeys.size() > 0) {
+      conf.setBoolean(FlinkOptions.HIVE_SYNC_ENABLED, conf.getOptional(FlinkOptions.HIVE_SYNC_ENABLED).orElse(true));
+      conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, conf.getOptional(FlinkOptions.HIVE_STYLE_PARTITIONING).orElse(true));
+      conf.setString(FlinkOptions.HIVE_SYNC_PARTITION_FIELDS, String.join(",", partitionKeys));
+    }
+    if (!conf.getBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING)
+        && FlinkOptions.isDefaultValueDefined(conf, FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME)) {
+      conf.setString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME, MultiPartKeysValueExtractor.class.getName());
     }
   }
 
@@ -329,6 +351,11 @@ public class HoodieTableFactory implements DynamicTableSourceFactory, DynamicTab
     if (FlinkOptions.isDefaultValueDefined(conf, FlinkOptions.OPERATION)
         && OptionsResolver.isCowTable(conf)) {
       conf.setBoolean(FlinkOptions.PRE_COMBINE, true);
+    }
+    if (FlinkOptions.isDefaultValueDefined(conf, FlinkOptions.CHANGELOG_STREAM_ENSURE_ORDER)
+        && WriteOperationType.isChangingRecords(
+            WriteOperationType.fromValue(conf.getString(FlinkOptions.OPERATION)))) {
+      conf.setBoolean(FlinkOptions.CHANGELOG_STREAM_ENSURE_ORDER, true);
     }
   }
 

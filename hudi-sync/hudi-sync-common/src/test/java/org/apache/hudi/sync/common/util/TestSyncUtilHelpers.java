@@ -20,19 +20,16 @@ package org.apache.hudi.sync.common.util;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.exception.HoodieException;
-import org.apache.hudi.sync.common.HoodieSyncTool;
+import org.apache.hudi.sync.common.AbstractSyncTool;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.util.Properties;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -49,44 +46,42 @@ public class TestSyncUtilHelpers {
     hadoopConf = fileSystem.getConf();
   }
 
-  @ParameterizedTest
-  @ValueSource(classes = {DummySyncTool1.class, DummySyncTool2.class})
-  public void testCreateValidSyncClass(Class<?> clazz) {
-    HoodieSyncTool syncTool = SyncUtilHelpers.instantiateMetaSyncTool(
-        clazz.getName(),
+  @Test
+  public void testCreateValidSyncClass() {
+    AbstractSyncTool metaSyncTool = SyncUtilHelpers.instantiateMetaSyncTool(
+        ValidMetaSyncClass.class.getName(),
         new TypedProperties(),
         hadoopConf,
         fileSystem,
         BASE_PATH,
         BASE_FORMAT
     );
-    assertTrue(clazz.isAssignableFrom(syncTool.getClass()));
+    assertTrue(metaSyncTool instanceof ValidMetaSyncClass);
   }
 
   /**
-   * Ensure it still works for the deprecated constructor of {@link HoodieSyncTool}
+   * Ensure it still works for the deprecated constructor of {@link AbstractSyncTool}
    * as we implemented the fallback.
    */
-  @ParameterizedTest
-  @ValueSource(classes = {DeprecatedSyncTool1.class, DeprecatedSyncTool2.class})
-  public void testCreateDeprecatedSyncClass(Class<?> clazz) {
+  @Test
+  public void testCreateDeprecatedSyncClass() {
     Properties properties = new Properties();
-    HoodieSyncTool syncTool = SyncUtilHelpers.instantiateMetaSyncTool(
-        clazz.getName(),
+    AbstractSyncTool deprecatedMetaSyncClass = SyncUtilHelpers.instantiateMetaSyncTool(
+        DeprecatedMetaSyncClass.class.getName(),
         new TypedProperties(properties),
         hadoopConf,
         fileSystem,
         BASE_PATH,
         BASE_FORMAT
     );
-    assertTrue(clazz.isAssignableFrom(syncTool.getClass()));
+    assertTrue(deprecatedMetaSyncClass instanceof DeprecatedMetaSyncClass);
   }
 
   @Test
   public void testCreateInvalidSyncClass() {
-    Throwable t = assertThrows(HoodieException.class, () -> {
+    Exception exception = assertThrows(HoodieException.class, () -> {
       SyncUtilHelpers.instantiateMetaSyncTool(
-          InvalidSyncTool.class.getName(),
+          InvalidSyncClass.class.getName(),
           new TypedProperties(),
           hadoopConf,
           fileSystem,
@@ -95,14 +90,14 @@ public class TestSyncUtilHelpers {
       );
     });
 
-    String expectedMessage = "Could not load meta sync class " + InvalidSyncTool.class.getName()
-        + ": no valid constructor found.";
-    assertEquals(expectedMessage, t.getMessage());
+    String expectedMessage = "Could not load meta sync class " + InvalidSyncClass.class.getName();
+    assertTrue(exception.getMessage().contains(expectedMessage));
+
   }
 
-  public static class DummySyncTool1 extends HoodieSyncTool {
-    public DummySyncTool1(Properties props, Configuration hadoopConf) {
-      super(props, hadoopConf);
+  public static class ValidMetaSyncClass extends AbstractSyncTool {
+    public ValidMetaSyncClass(TypedProperties props, Configuration conf, FileSystem fs) {
+      super(props, conf, fs);
     }
 
     @Override
@@ -111,9 +106,9 @@ public class TestSyncUtilHelpers {
     }
   }
 
-  public static class DummySyncTool2 extends HoodieSyncTool {
-    public DummySyncTool2(Properties props, Configuration hadoopConf) {
-      super(props, hadoopConf);
+  public static class DeprecatedMetaSyncClass extends AbstractSyncTool {
+    public DeprecatedMetaSyncClass(Properties props, FileSystem fileSystem) {
+      super(props, fileSystem);
     }
 
     @Override
@@ -122,30 +117,8 @@ public class TestSyncUtilHelpers {
     }
   }
 
-  public static class DeprecatedSyncTool1 extends HoodieSyncTool {
-    public DeprecatedSyncTool1(TypedProperties props, Configuration hadoopConf, FileSystem fs) {
-      super(props, hadoopConf, fs);
-    }
-
-    @Override
-    public void syncHoodieTable() {
-      throw new HoodieException("Method unimplemented as its a test class");
-    }
-  }
-
-  public static class DeprecatedSyncTool2 extends HoodieSyncTool {
-    public DeprecatedSyncTool2(Properties props, FileSystem fs) {
-      super(props, fs);
-    }
-
-    @Override
-    public void syncHoodieTable() {
-      throw new HoodieException("Method unimplemented as its a test class");
-    }
-  }
-
-  public static class InvalidSyncTool {
-    public InvalidSyncTool(Properties props, FileSystem fs, Configuration hadoopConf) {
+  public static class InvalidSyncClass {
+    public InvalidSyncClass(Properties props) {
     }
   }
 }

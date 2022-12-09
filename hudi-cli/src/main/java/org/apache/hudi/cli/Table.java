@@ -37,8 +37,6 @@ public class Table implements Iterable<List<String>> {
 
   // Header for this table
   private final TableHeader rowHeader;
-  // Whether to print row number
-  private final boolean addRowNo;
   // User-specified conversions before rendering
   private final Map<String, Function<Object, String>> fieldNameToConverterMap;
   // Option attribute to track sorting field
@@ -51,17 +49,12 @@ public class Table implements Iterable<List<String>> {
   private final List<List<Comparable>> rawRows;
   // Flag to determine if all the rows have been added
   private boolean finishedAdding = false;
-  // Headers ready for rendering
-  private TableHeader renderHeaders;
-  // Rows ready for rendering
+  // Rows ready for Rendering
   private List<List<String>> renderRows;
 
-  public Table(
-      TableHeader rowHeader, Map<String, Function<Object, String>> fieldNameToConverterMap,
-      boolean addRowNo, Option<String> orderingFieldNameOptional,
-      Option<Boolean> isDescendingOptional, Option<Integer> limitOptional) {
+  public Table(TableHeader rowHeader, Map<String, Function<Object, String>> fieldNameToConverterMap,
+      Option<String> orderingFieldNameOptional, Option<Boolean> isDescendingOptional, Option<Integer> limitOptional) {
     this.rowHeader = rowHeader;
-    this.addRowNo = addRowNo;
     this.fieldNameToConverterMap = fieldNameToConverterMap;
     this.orderingFieldNameOptional = orderingFieldNameOptional;
     this.isDescendingOptional = isDescendingOptional;
@@ -71,7 +64,7 @@ public class Table implements Iterable<List<String>> {
 
   /**
    * Main API to add row to the table.
-   *
+   * 
    * @param row Row
    */
   public Table add(List<Comparable> row) {
@@ -141,34 +134,15 @@ public class Table implements Iterable<List<String>> {
   private void sortAndLimit() {
     this.renderRows = new ArrayList<>();
     final int limit = this.limitOptional.orElse(rawRows.size());
-    // Row number is added here if enabled
-    final List<List<Comparable>> rawOrderedRows = orderRows();
-    final List<List<Comparable>> orderedRows;
-    if (addRowNo) {
-      orderedRows = new ArrayList<>();
-      int rowNo = 0;
-      for (List<Comparable> row : rawOrderedRows) {
-        List<Comparable> newRow = new ArrayList<>();
-        newRow.add(rowNo++);
-        newRow.addAll(row);
-        orderedRows.add(newRow);
+    final List<List<Comparable>> orderedRows = orderRows();
+    renderRows = orderedRows.stream().limit(limit).map(row -> IntStream.range(0, rowHeader.getNumFields()).mapToObj(idx -> {
+      String fieldName = rowHeader.get(idx);
+      if (fieldNameToConverterMap.containsKey(fieldName)) {
+        return fieldNameToConverterMap.get(fieldName).apply(row.get(idx));
       }
-    } else {
-      orderedRows = rawOrderedRows;
-    }
-    renderHeaders = addRowNo
-        ? new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_ROW_NO)
-        .addTableHeaderFields(rowHeader)
-        : rowHeader;
-    renderRows = orderedRows.stream().limit(limit)
-        .map(row -> IntStream.range(0, renderHeaders.getNumFields()).mapToObj(idx -> {
-          String fieldName = renderHeaders.get(idx);
-          if (fieldNameToConverterMap.containsKey(fieldName)) {
-            return fieldNameToConverterMap.get(fieldName).apply(row.get(idx));
-          }
-          Object v = row.get(idx);
-          return v == null ? "null" : v.toString();
-        }).collect(Collectors.toList())).collect(Collectors.toList());
+      Object v = row.get(idx);
+      return v == null ? "null" : v.toString();
+    }).collect(Collectors.toList())).collect(Collectors.toList());
   }
 
   @Override
@@ -188,9 +162,6 @@ public class Table implements Iterable<List<String>> {
   }
 
   public List<String> getFieldNames() {
-    if (renderHeaders != null) {
-      return renderHeaders.getFieldNames();
-    }
     return rowHeader.getFieldNames();
   }
 

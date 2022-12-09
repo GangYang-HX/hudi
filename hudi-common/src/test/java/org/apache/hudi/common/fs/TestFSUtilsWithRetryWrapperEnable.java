@@ -28,6 +28,7 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.util.Progressable;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +38,6 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -55,6 +55,7 @@ public class TestFSUtilsWithRetryWrapperEnable extends TestFSUtils {
   @BeforeEach
   public void setUp() throws IOException {
     initMetaClient();
+    basePath = "file:" + basePath;
     FileSystemRetryConfig fileSystemRetryConfig = FileSystemRetryConfig.newBuilder().withFileSystemActionRetryEnabled(true).build();
     maxRetryIntervalMs = fileSystemRetryConfig.getMaxRetryIntervalMs();
     maxRetryNumbers = fileSystemRetryConfig.getMaxRetryNumbers();
@@ -77,14 +78,6 @@ public class TestFSUtilsWithRetryWrapperEnable extends TestFSUtils {
     List<String> folders =
             Arrays.asList("2016/04/15", ".hoodie/.temp/2/2016/04/15");
     folders.forEach(f -> assertThrows(RuntimeException.class, () -> metaClient.getFs().mkdirs(new Path(new Path(basePath), f))));
-  }
-
-  @Test
-  public void testGetSchema() {
-    FakeRemoteFileSystem fakeFs = new FakeRemoteFileSystem(FSUtils.getFs(metaClient.getMetaPath(), metaClient.getHadoopConf()), 100);
-    FileSystem fileSystem = new HoodieRetryWrapperFileSystem(fakeFs, maxRetryIntervalMs, maxRetryNumbers, initialRetryIntervalMs, "");
-    HoodieWrapperFileSystem fs = new HoodieWrapperFileSystem(fileSystem, new NoOpConsistencyGuard());
-    assertDoesNotThrow(fs::getScheme, "Method #getSchema does not implement correctly");
   }
 
   /**
@@ -212,11 +205,6 @@ public class TestFSUtilsWithRetryWrapperEnable extends TestFSUtils {
     @Override
     public Configuration getConf() {
       return fs.getConf();
-    }
-
-    @Override
-    public String getScheme() {
-      return fs.getScheme();
     }
   }
 }

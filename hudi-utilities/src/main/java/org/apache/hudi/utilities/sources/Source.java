@@ -38,7 +38,7 @@ import java.io.Serializable;
 public abstract class Source<T> implements SourceCommitCallback, Serializable {
 
   public enum SourceType {
-    JSON, AVRO, ROW, PROTO
+    JSON, AVRO, ROW
   }
 
   protected transient TypedProperties props;

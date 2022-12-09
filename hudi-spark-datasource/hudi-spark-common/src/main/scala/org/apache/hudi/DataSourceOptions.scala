@@ -19,19 +19,18 @@ package org.apache.hudi
 
 import org.apache.hudi.DataSourceReadOptions.{QUERY_TYPE, QUERY_TYPE_READ_OPTIMIZED_OPT_VAL, QUERY_TYPE_SNAPSHOT_OPT_VAL}
 import org.apache.hudi.HoodieConversionUtils.toScalaOption
-import org.apache.hudi.common.config.{ConfigProperty, DFSPropertiesConfiguration, HoodieCommonConfig, HoodieConfig, TypedProperties}
+import org.apache.hudi.common.config.{ConfigProperty, HoodieConfig}
 import org.apache.hudi.common.fs.ConsistencyGuardConfig
 import org.apache.hudi.common.model.{HoodieTableType, WriteOperationType}
 import org.apache.hudi.common.table.HoodieTableConfig
-import org.apache.hudi.common.util.{Option, StringUtils}
+import org.apache.hudi.common.util.Option
 import org.apache.hudi.common.util.ValidationUtils.checkState
 import org.apache.hudi.config.{HoodieClusteringConfig, HoodieWriteConfig}
-import org.apache.hudi.hive.{HiveSyncConfig, HiveSyncConfigHolder, HiveSyncTool}
+import org.apache.hudi.hive.util.ConfigUtils
+import org.apache.hudi.hive.{HiveSyncConfig, HiveSyncTool}
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions
 import org.apache.hudi.keygen.{ComplexKeyGenerator, CustomKeyGenerator, NonpartitionedKeyGenerator, SimpleKeyGenerator}
 import org.apache.hudi.sync.common.HoodieSyncConfig
-import org.apache.hudi.sync.common.util.ConfigUtils
-import org.apache.hudi.util.JFunction
 import org.apache.log4j.LogManager
 import org.apache.spark.sql.execution.datasources.{DataSourceUtils => SparkDataSourceUtils}
 
@@ -57,27 +56,15 @@ object DataSourceReadOptions {
     .key("hoodie.datasource.query.type")
     .defaultValue(QUERY_TYPE_SNAPSHOT_OPT_VAL)
     .withAlternatives("hoodie.datasource.view.type")
-    .withValidValues(QUERY_TYPE_SNAPSHOT_OPT_VAL, QUERY_TYPE_READ_OPTIMIZED_OPT_VAL, QUERY_TYPE_INCREMENTAL_OPT_VAL)
     .withDocumentation("Whether data needs to be read, in incremental mode (new data since an instantTime) " +
       "(or) Read Optimized mode (obtain latest view, based on base files) (or) Snapshot mode " +
       "(obtain latest view, by merging base and (if any) log files)")
-
-  val INCREMENTAL_FORMAT_LATEST_STATE_VAL = "latest_state"
-  val INCREMENTAL_FORMAT_CDC_VAL = "cdc"
-  val INCREMENTAL_FORMAT: ConfigProperty[String] = ConfigProperty
-    .key("hoodie.datasource.query.incremental.format")
-    .defaultValue(INCREMENTAL_FORMAT_LATEST_STATE_VAL)
-    .withValidValues(INCREMENTAL_FORMAT_LATEST_STATE_VAL, INCREMENTAL_FORMAT_CDC_VAL)
-    .withDocumentation("This config is used alone with the 'incremental' query type." +
-      "When set to 'latest_state', it returns the latest records' values." +
-      "When set to 'cdc', it returns the cdc data.")
 
   val REALTIME_SKIP_MERGE_OPT_VAL = "skip_merge"
   val REALTIME_PAYLOAD_COMBINE_OPT_VAL = "payload_combine"
   val REALTIME_MERGE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.merge.type")
     .defaultValue(REALTIME_PAYLOAD_COMBINE_OPT_VAL)
-    .withValidValues(REALTIME_SKIP_MERGE_OPT_VAL, REALTIME_PAYLOAD_COMBINE_OPT_VAL)
     .withDocumentation("For Snapshot query on merge on read table, control whether we invoke the record " +
       s"payload implementation to merge (${REALTIME_PAYLOAD_COMBINE_OPT_VAL}) or skip merging altogether" +
       s"${REALTIME_SKIP_MERGE_OPT_VAL}")
@@ -95,12 +82,6 @@ object DataSourceReadOptions {
     .deprecatedAfter("0.11.0")
     .withDocumentation("Enables use of the spark file index implementation for Hudi, "
       + "that speeds up listing of large tables.")
-
-  val START_OFFSET: ConfigProperty[String] = ConfigProperty
-    .key("hoodie.datasource.streaming.startOffset")
-    .defaultValue("earliest")
-    .withDocumentation("Start offset to pull data from hoodie streaming source. allow earliest, latest, and " +
-      "specified start instant time")
 
   val BEGIN_INSTANTTIME: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.read.begin.instanttime")
@@ -133,7 +114,11 @@ object DataSourceReadOptions {
     .withDocumentation("For the use-cases like users only want to incremental pull from certain partitions "
       + "instead of the full table. This option allows using glob pattern to directly filter on path.")
 
-  val TIME_TRAVEL_AS_OF_INSTANT: ConfigProperty[String] = HoodieCommonConfig.TIMESTAMP_AS_OF
+  val TIME_TRAVEL_AS_OF_INSTANT: ConfigProperty[String] = ConfigProperty
+    .key("as.of.instant")
+    .noDefaultValue()
+    .withDocumentation("The query instant for time travel. Without specified this option," +
+      " we query the latest snapshot.")
 
   val ENABLE_DATA_SKIPPING: ConfigProperty[Boolean] = ConfigProperty
     .key("hoodie.enable.data.skipping")
@@ -151,39 +136,10 @@ object DataSourceReadOptions {
         " read from the data file (in Hudi partition columns are persisted by default)." +
         " This config is a fallback allowing to preserve existing behavior, and should not be used otherwise.")
 
-  val FILE_INDEX_LISTING_MODE_EAGER = "eager"
-  val FILE_INDEX_LISTING_MODE_LAZY = "lazy"
-
-  val FILE_INDEX_LISTING_MODE_OVERRIDE: ConfigProperty[String] =
-    ConfigProperty.key("hoodie.datasource.read.file.index.listing.mode.override")
-      .defaultValue(FILE_INDEX_LISTING_MODE_LAZY)
-      .withValidValues(FILE_INDEX_LISTING_MODE_LAZY, FILE_INDEX_LISTING_MODE_EAGER)
-      .sinceVersion("0.13.0")
-      .withDocumentation("Overrides Hudi's file-index implementation's file listing mode: when set to 'eager'," +
-        " file-index will list all partition paths and corresponding file slices w/in them eagerly, during initialization," +
-        " prior to partition-pruning kicking in, meaning that all partitions will be listed including ones that might be " +
-        " subsequently pruned out; when set to 'lazy', partitions and file-slices w/in them will be listed" +
-        " lazily (ie when they actually accessed, instead of when file-index is initialized) allowing partition pruning" +
-        " to occur before that, only listing partitions that has already been pruned. Please note that, this config" +
-        " is provided purely to allow to fallback to behavior existing prior to 0.13.0 release, and will be deprecated" +
-        " soon after.")
-
-  val FILE_INDEX_LISTING_PARTITION_PATH_PREFIX_ANALYSIS_ENABLED: ConfigProperty[Boolean] =
-    ConfigProperty.key("hoodie.datasource.read.file.index.listing.partition-path-prefix.analysis.enabled")
-      .defaultValue(true)
-      .sinceVersion("0.13.0")
-      .withDocumentation("Controls whether partition-path prefix analysis is enabled w/in the file-index, allowing" +
-        " to avoid necessity to recursively list deep folder structures of partitioned tables w/ multiple partition columns," +
-        " by carefully analyzing provided partition-column predicates and deducing corresponding partition-path prefix from " +
-        " them (if possible).")
-
   val INCREMENTAL_FALLBACK_TO_FULL_TABLE_SCAN_FOR_NON_EXISTING_FILES: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.read.incr.fallback.fulltablescan.enable")
     .defaultValue("false")
     .withDocumentation("When doing an incremental query whether we should fall back to full table scans if file does not exist.")
-
-  val SCHEMA_EVOLUTION_ENABLED: ConfigProperty[Boolean] = HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE
-
   /** @deprecated Use {@link QUERY_TYPE} and its methods instead */
   @Deprecated
   val QUERY_TYPE_OPT_KEY = QUERY_TYPE.key()
@@ -254,23 +210,6 @@ object DataSourceWriteOptions {
   val OPERATION: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.operation")
     .defaultValue(UPSERT_OPERATION_OPT_VAL)
-    .withValidValues(
-      WriteOperationType.INSERT.value,
-      WriteOperationType.INSERT_PREPPED.value,
-      WriteOperationType.UPSERT.value,
-      WriteOperationType.UPSERT_PREPPED.value,
-      WriteOperationType.BULK_INSERT.value,
-      WriteOperationType.BULK_INSERT_PREPPED.value,
-      WriteOperationType.DELETE.value,
-      WriteOperationType.BOOTSTRAP.value,
-      WriteOperationType.INSERT_OVERWRITE.value,
-      WriteOperationType.CLUSTER.value,
-      WriteOperationType.DELETE_PARTITION.value,
-      WriteOperationType.INSERT_OVERWRITE_TABLE.value,
-      WriteOperationType.COMPACT.value,
-      WriteOperationType.INSERT.value,
-      WriteOperationType.ALTER_SCHEMA.value
-    )
     .withDocumentation("Whether to do upsert, insert or bulkinsert for the write operation. " +
       "Use bulkinsert to load new data into a table, and there on use upsert/insert. " +
       "bulk insert uses a disk based write path to scale to load large inputs without need to cache it.")
@@ -281,7 +220,6 @@ object DataSourceWriteOptions {
   val TABLE_TYPE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.table.type")
     .defaultValue(COW_TABLE_TYPE_OPT_VAL)
-    .withValidValues(COW_TABLE_TYPE_OPT_VAL, MOR_TABLE_TYPE_OPT_VAL)
     .withAlternatives("hoodie.datasource.write.storage.type")
     .withDocumentation("The table type for the underlying data, for this write. This can’t change between writes.")
 
@@ -362,16 +300,25 @@ object DataSourceWriteOptions {
   val HIVE_STYLE_PARTITIONING = KeyGeneratorOptions.HIVE_STYLE_PARTITIONING_ENABLE
 
   /**
-    * Key generator class, that implements will extract the key out of incoming record.
+    * Key generator class, that implements will extract the key out of incoming record
+    *
     */
-  val keyGeneratorInferFunc = JFunction.toJavaFunction((config: HoodieConfig) => {
-    Option.of(DataSourceOptionsHelper.inferKeyGenClazz(config.getProps))
+  val keyGeneraterInferFunc = DataSourceOptionsHelper.scalaFunctionToJavaFunction((p: HoodieConfig) => {
+    if (!p.contains(PARTITIONPATH_FIELD)) {
+      Option.of(classOf[NonpartitionedKeyGenerator].getName)
+    } else {
+      val numOfPartFields = p.getString(PARTITIONPATH_FIELD).split(",").length
+      if (numOfPartFields == 1) {
+        Option.of(classOf[SimpleKeyGenerator].getName)
+      } else {
+        Option.of(classOf[ComplexKeyGenerator].getName)
+      }
+    }
   })
-
   val KEYGENERATOR_CLASS_NAME: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.keygenerator.class")
     .defaultValue(classOf[SimpleKeyGenerator].getName)
-    .withInferFunction(keyGeneratorInferFunc)
+    .withInferFunction(keyGeneraterInferFunc)
     .withDocumentation("Key generator class, that implements `org.apache.hudi.keygen.KeyGenerator`")
 
   val KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED: ConfigProperty[String] = KeyGeneratorOptions.KEYGENERATOR_CONSISTENT_LOGICAL_TIMESTAMP_ENABLED
@@ -412,7 +359,7 @@ object DataSourceWriteOptions {
   val PARTITIONS_TO_DELETE: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.partitions.to.delete")
     .noDefaultValue()
-    .withDocumentation("Comma separated list of partitions to delete. Allows use of wildcard *")
+    .withDocumentation("Comma separated list of partitions to delete")
 
   val STREAMING_RETRY_CNT: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.streaming.retry.count")
@@ -425,32 +372,25 @@ object DataSourceWriteOptions {
     .withDocumentation(" Config to indicate how long (by millisecond) before a retry should issued for failed microbatch")
 
   /**
-   * By default false. If users prefer streaming progress over data integrity, can set this to true.
+   * By default true (in favor of streaming progressing over data integrity)
    */
   val STREAMING_IGNORE_FAILED_BATCH: ConfigProperty[String] = ConfigProperty
     .key("hoodie.datasource.write.streaming.ignore.failed.batch")
-    .defaultValue("false")
+    .defaultValue("true")
     .withDocumentation("Config to indicate whether to ignore any non exception error (e.g. writestatus error)"
-      + " within a streaming microbatch. Turning this on, could hide the write status errors while the spark checkpoint moves ahead." +
-      "So, would recommend users to use this with caution.")
+      + " within a streaming microbatch")
 
   val META_SYNC_CLIENT_TOOL_CLASS_NAME: ConfigProperty[String] = ConfigProperty
     .key("hoodie.meta.sync.client.tool.class")
     .defaultValue(classOf[HiveSyncTool].getName)
     .withDocumentation("Sync tool class name used to sync to metastore. Defaults to Hive.")
 
-  val RECONCILE_SCHEMA: ConfigProperty[Boolean] = HoodieCommonConfig.RECONCILE_SCHEMA
-
-  // NOTE: This is an internal config that is not exposed to the public
-  private[hudi] val CANONICALIZE_SCHEMA: ConfigProperty[Boolean] =
-    ConfigProperty.key("hoodie.datasource.write.schema.canonicalize")
-      .defaultValue(true)
-      .sinceVersion("0.13.0")
-      .withDocumentation("Controls whether incoming batch's schema's nullability constraints should be canonicalized "
-        + "relative to the table's schema. For ex, in case field A is marked as null-able in table's schema, but is marked "
-        + "as non-null in the incoming batch, w/o canonicalization such write might fail as we won't be able to read existing "
-        + "null records from the table (for updating, for ex). Note, that this config has only effect when "
-        + "'hoodie.datasource.write.reconcile.schema' is set to false.")
+  val RECONCILE_SCHEMA: ConfigProperty[Boolean] = ConfigProperty
+    .key("hoodie.datasource.write.reconcile.schema")
+    .defaultValue(false)
+    .withDocumentation("When a new batch of write has records with old schema, but latest table schema got "
+      + "evolved, this config will upgrade the records to leverage latest table schema(default values will be "
+      + "injected to missing fields). If not, the write batch would fail.")
 
   // HIVE SYNC SPECIFIC CONFIGS
   // NOTE: DO NOT USE uppercase for the keys as they are internally lower-cased. Using upper-cases causes
@@ -459,43 +399,49 @@ object DataSourceWriteOptions {
    * @deprecated Hive Specific Configs are moved to {@link HiveSyncConfig}
    */
   @Deprecated
-  val HIVE_SYNC_ENABLED: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_SYNC_ENABLED
+  val HIVE_SYNC_ENABLED: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_ENABLED
   @Deprecated
   val META_SYNC_ENABLED: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_ENABLED
   @Deprecated
   val HIVE_DATABASE: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_DATABASE_NAME
   @Deprecated
+  val hiveTableOptKeyInferFunc: JavaFunction[HoodieConfig, Option[String]] = HoodieSyncConfig.TABLE_NAME_INFERENCE_FUNCTION
+  @Deprecated
   val HIVE_TABLE: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_TABLE_NAME
   @Deprecated
   val HIVE_BASE_FILE_FORMAT: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_BASE_FILE_FORMAT
   @Deprecated
-  val HIVE_USER: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_USER
+  val HIVE_USER: ConfigProperty[String] = HiveSyncConfig.HIVE_USER
   @Deprecated
-  val HIVE_PASS: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_PASS
+  val HIVE_PASS: ConfigProperty[String] = HiveSyncConfig.HIVE_PASS
   @Deprecated
-  val HIVE_URL: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_URL
+  val HIVE_URL: ConfigProperty[String] = HiveSyncConfig.HIVE_URL
   @Deprecated
-  val METASTORE_URIS: ConfigProperty[String] = HiveSyncConfigHolder.METASTORE_URIS
+  val METASTORE_URIS: ConfigProperty[String] = HiveSyncConfig.METASTORE_URIS
+  @Deprecated
+  val hivePartitionFieldsInferFunc: JavaFunction[HoodieConfig, Option[String]] = HoodieSyncConfig.PARTITION_FIELDS_INFERENCE_FUNCTION
   @Deprecated
   val HIVE_PARTITION_FIELDS: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_PARTITION_FIELDS
+  @Deprecated
+  val hivePartitionExtractorInferFunc: JavaFunction[HoodieConfig, Option[String]] = HoodieSyncConfig.PARTITION_EXTRACTOR_CLASS_FUNCTION
   @Deprecated
   val HIVE_PARTITION_EXTRACTOR_CLASS: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_PARTITION_EXTRACTOR_CLASS
   @Deprecated
   val HIVE_ASSUME_DATE_PARTITION: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_ASSUME_DATE_PARTITION
   @Deprecated
-  val HIVE_USE_PRE_APACHE_INPUT_FORMAT: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_USE_PRE_APACHE_INPUT_FORMAT
+  val HIVE_USE_PRE_APACHE_INPUT_FORMAT: ConfigProperty[String] = HiveSyncConfig.HIVE_USE_PRE_APACHE_INPUT_FORMAT
 
   /** @deprecated Use {@link HIVE_SYNC_MODE} instead of this config from 0.9.0 */
   @Deprecated
-  val HIVE_USE_JDBC: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_USE_JDBC
+  val HIVE_USE_JDBC: ConfigProperty[String] = HiveSyncConfig.HIVE_USE_JDBC
   @Deprecated
-  val HIVE_AUTO_CREATE_DATABASE: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_AUTO_CREATE_DATABASE
+  val HIVE_AUTO_CREATE_DATABASE: ConfigProperty[String] = HiveSyncConfig.HIVE_AUTO_CREATE_DATABASE
   @Deprecated
-  val HIVE_IGNORE_EXCEPTIONS: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_IGNORE_EXCEPTIONS
+  val HIVE_IGNORE_EXCEPTIONS: ConfigProperty[String] = HiveSyncConfig.HIVE_IGNORE_EXCEPTIONS
   @Deprecated
-  val HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE
+  val HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE: ConfigProperty[String] = HiveSyncConfig.HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE
   @Deprecated
-  val HIVE_SUPPORT_TIMESTAMP_TYPE: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_SUPPORT_TIMESTAMP_TYPE
+  val HIVE_SUPPORT_TIMESTAMP_TYPE: ConfigProperty[String] = HiveSyncConfig.HIVE_SUPPORT_TIMESTAMP_TYPE
 
   /**
    * Flag to indicate whether to use conditional syncing in HiveSync.
@@ -505,23 +451,23 @@ object DataSourceWriteOptions {
   @Deprecated
   val HIVE_CONDITIONAL_SYNC: ConfigProperty[String] = HoodieSyncConfig.META_SYNC_CONDITIONAL_SYNC
   @Deprecated
-  val HIVE_TABLE_PROPERTIES: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_TABLE_PROPERTIES
+  val HIVE_TABLE_PROPERTIES: ConfigProperty[String] = HiveSyncConfig.HIVE_TABLE_PROPERTIES
   @Deprecated
-  val HIVE_TABLE_SERDE_PROPERTIES: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_TABLE_SERDE_PROPERTIES
+  val HIVE_TABLE_SERDE_PROPERTIES: ConfigProperty[String] = HiveSyncConfig.HIVE_TABLE_SERDE_PROPERTIES
   @Deprecated
-  val HIVE_SYNC_AS_DATA_SOURCE_TABLE: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_SYNC_AS_DATA_SOURCE_TABLE
+  val HIVE_SYNC_AS_DATA_SOURCE_TABLE: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_AS_DATA_SOURCE_TABLE
 
   // Create table as managed table
   @Deprecated
-  val HIVE_CREATE_MANAGED_TABLE: ConfigProperty[java.lang.Boolean] = HiveSyncConfigHolder.HIVE_CREATE_MANAGED_TABLE
+  val HIVE_CREATE_MANAGED_TABLE: ConfigProperty[java.lang.Boolean] = HiveSyncConfig.HIVE_CREATE_MANAGED_TABLE
   @Deprecated
-  val HIVE_BATCH_SYNC_PARTITION_NUM: ConfigProperty[java.lang.Integer] = HiveSyncConfigHolder.HIVE_BATCH_SYNC_PARTITION_NUM
+  val HIVE_BATCH_SYNC_PARTITION_NUM: ConfigProperty[java.lang.Integer] = HiveSyncConfig.HIVE_BATCH_SYNC_PARTITION_NUM
   @Deprecated
-  val HIVE_SYNC_MODE: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_SYNC_MODE
+  val HIVE_SYNC_MODE: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_MODE
   @Deprecated
-  val HIVE_SYNC_BUCKET_SYNC: ConfigProperty[java.lang.Boolean] = HiveSyncConfigHolder.HIVE_SYNC_BUCKET_SYNC
+  val HIVE_SYNC_BUCKET_SYNC: ConfigProperty[java.lang.Boolean] = HiveSyncConfig.HIVE_SYNC_BUCKET_SYNC
   @Deprecated
-  val HIVE_SYNC_COMMENT: ConfigProperty[String] = HiveSyncConfigHolder.HIVE_SYNC_COMMENT;
+  val HIVE_SYNC_COMMENT: ConfigProperty[String] = HiveSyncConfig.HIVE_SYNC_COMMENT;
 
   // Async Compaction - Enabled by default for MOR
   val ASYNC_COMPACT_ENABLE: ConfigProperty[String] = ConfigProperty
@@ -546,16 +492,16 @@ object DataSourceWriteOptions {
   val HIVE_ASSUME_DATE_PARTITION_OPT_KEY = HoodieSyncConfig.META_SYNC_ASSUME_DATE_PARTITION.key()
   /** @deprecated Use {@link HIVE_USE_PRE_APACHE_INPUT_FORMAT} and its methods instead */
   @Deprecated
-  val HIVE_USE_PRE_APACHE_INPUT_FORMAT_OPT_KEY = HiveSyncConfigHolder.HIVE_USE_PRE_APACHE_INPUT_FORMAT.key()
+  val HIVE_USE_PRE_APACHE_INPUT_FORMAT_OPT_KEY = HiveSyncConfig.HIVE_USE_PRE_APACHE_INPUT_FORMAT.key()
   /** @deprecated Use {@link HIVE_USE_JDBC} and its methods instead */
   @Deprecated
-  val HIVE_USE_JDBC_OPT_KEY = HiveSyncConfigHolder.HIVE_USE_JDBC.key()
+  val HIVE_USE_JDBC_OPT_KEY = HiveSyncConfig.HIVE_USE_JDBC.key()
   /** @deprecated Use {@link HIVE_AUTO_CREATE_DATABASE} and its methods instead */
   @Deprecated
-  val HIVE_AUTO_CREATE_DATABASE_OPT_KEY = HiveSyncConfigHolder.HIVE_AUTO_CREATE_DATABASE.key()
+  val HIVE_AUTO_CREATE_DATABASE_OPT_KEY = HiveSyncConfig.HIVE_AUTO_CREATE_DATABASE.key()
   /** @deprecated Use {@link HIVE_IGNORE_EXCEPTIONS} and its methods instead */
   @Deprecated
-  val HIVE_IGNORE_EXCEPTIONS_OPT_KEY = HiveSyncConfigHolder.HIVE_IGNORE_EXCEPTIONS.key()
+  val HIVE_IGNORE_EXCEPTIONS_OPT_KEY = HiveSyncConfig.HIVE_IGNORE_EXCEPTIONS.key()
   /** @deprecated Use {@link STREAMING_IGNORE_FAILED_BATCH} and its methods instead */
   @Deprecated
   val STREAMING_IGNORE_FAILED_BATCH_OPT_KEY = STREAMING_IGNORE_FAILED_BATCH.key()
@@ -570,28 +516,28 @@ object DataSourceWriteOptions {
   val DEFAULT_META_SYNC_CLIENT_TOOL_CLASS = META_SYNC_CLIENT_TOOL_CLASS_NAME.defaultValue()
   /** @deprecated Use {@link HIVE_SYNC_ENABLED} and its methods instead */
   @Deprecated
-  val HIVE_SYNC_ENABLED_OPT_KEY = HiveSyncConfigHolder.HIVE_SYNC_ENABLED.key()
+  val HIVE_SYNC_ENABLED_OPT_KEY = HiveSyncConfig.HIVE_SYNC_ENABLED.key()
   /** @deprecated Use {@link META_SYNC_ENABLED} and its methods instead */
   @Deprecated
-  val META_SYNC_ENABLED_OPT_KEY = HoodieSyncConfig.META_SYNC_ENABLED.key()
+  val META_SYNC_ENABLED_OPT_KEY = HoodieSyncConfig.META_SYNC_DATABASE_NAME.key()
   /** @deprecated Use {@link HIVE_DATABASE} and its methods instead */
   @Deprecated
   val HIVE_DATABASE_OPT_KEY = HoodieSyncConfig.META_SYNC_DATABASE_NAME.key()
   /** @deprecated Use {@link HIVE_TABLE} and its methods instead */
   @Deprecated
-  val HIVE_TABLE_OPT_KEY = HoodieSyncConfig.META_SYNC_TABLE_NAME.key()
+  val HIVE_TABLE_OPT_KEY = HoodieSyncConfig.META_SYNC_DATABASE_NAME.key()
   /** @deprecated Use {@link HIVE_BASE_FILE_FORMAT} and its methods instead */
   @Deprecated
   val HIVE_BASE_FILE_FORMAT_OPT_KEY = HoodieSyncConfig.META_SYNC_BASE_FILE_FORMAT.key()
   /** @deprecated Use {@link HIVE_USER} and its methods instead */
   @Deprecated
-  val HIVE_USER_OPT_KEY = HiveSyncConfigHolder.HIVE_USER.key()
+  val HIVE_USER_OPT_KEY = HiveSyncConfig.HIVE_USER.key()
   /** @deprecated Use {@link HIVE_PASS} and its methods instead */
   @Deprecated
-  val HIVE_PASS_OPT_KEY = HiveSyncConfigHolder.HIVE_PASS.key()
+  val HIVE_PASS_OPT_KEY = HiveSyncConfig.HIVE_PASS.key()
   /** @deprecated Use {@link HIVE_URL} and its methods instead */
   @Deprecated
-  val HIVE_URL_OPT_KEY = HiveSyncConfigHolder.HIVE_URL.key()
+  val HIVE_URL_OPT_KEY = HiveSyncConfig.HIVE_URL.key()
   /** @deprecated Use {@link HIVE_PARTITION_FIELDS} and its methods instead */
   @Deprecated
   val HIVE_PARTITION_FIELDS_OPT_KEY = HoodieSyncConfig.META_SYNC_PARTITION_FIELDS.key()
@@ -655,6 +601,9 @@ object DataSourceWriteOptions {
   val RECORDKEY_FIELD_OPT_KEY = KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key()
   /** @deprecated Use {@link RECORDKEY_FIELD} and its methods instead */
   @Deprecated
+  val DEFAULT_RECORDKEY_FIELD_OPT_VAL = RECORDKEY_FIELD.defaultValue()
+  /** @deprecated Use {@link PARTITIONPATH_FIELD} and its methods instead */
+  @Deprecated
   val PARTITIONPATH_FIELD_OPT_KEY = KeyGeneratorOptions.PARTITIONPATH_FIELD_NAME.key()
   /** @deprecated Use {@link PARTITIONPATH_FIELD} and its methods instead */
   @Deprecated
@@ -704,7 +653,7 @@ object DataSourceWriteOptions {
 
   /** @deprecated Use {@link HIVE_SYNC_ENABLED} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_SYNC_ENABLED_OPT_VAL = HiveSyncConfigHolder.HIVE_SYNC_ENABLED.defaultValue()
+  val DEFAULT_HIVE_SYNC_ENABLED_OPT_VAL = HiveSyncConfig.HIVE_SYNC_ENABLED.defaultValue()
   /** @deprecated Use {@link META_SYNC_ENABLED} and its methods instead */
   @Deprecated
   val DEFAULT_META_SYNC_ENABLED_OPT_VAL = HoodieSyncConfig.META_SYNC_ENABLED.defaultValue()
@@ -719,13 +668,13 @@ object DataSourceWriteOptions {
   val DEFAULT_HIVE_BASE_FILE_FORMAT_OPT_VAL = HoodieSyncConfig.META_SYNC_BASE_FILE_FORMAT.defaultValue()
   /** @deprecated Use {@link HIVE_USER} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_USER_OPT_VAL = HiveSyncConfigHolder.HIVE_USER.defaultValue()
+  val DEFAULT_HIVE_USER_OPT_VAL = HiveSyncConfig.HIVE_USER.defaultValue()
   /** @deprecated Use {@link HIVE_PASS} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_PASS_OPT_VAL = HiveSyncConfigHolder.HIVE_PASS.defaultValue()
+  val DEFAULT_HIVE_PASS_OPT_VAL = HiveSyncConfig.HIVE_PASS.defaultValue()
   /** @deprecated Use {@link HIVE_URL} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_URL_OPT_VAL = HiveSyncConfigHolder.HIVE_URL.defaultValue()
+  val DEFAULT_HIVE_URL_OPT_VAL = HiveSyncConfig.HIVE_URL.defaultValue()
   /** @deprecated Use {@link HIVE_PARTITION_FIELDS} and its methods instead */
   @Deprecated
   val DEFAULT_HIVE_PARTITION_FIELDS_OPT_VAL = HoodieSyncConfig.META_SYNC_PARTITION_FIELDS.defaultValue()
@@ -739,25 +688,25 @@ object DataSourceWriteOptions {
   val DEFAULT_USE_PRE_APACHE_INPUT_FORMAT_OPT_VAL = "false"
   /** @deprecated Use {@link HIVE_USE_JDBC} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_USE_JDBC_OPT_VAL = HiveSyncConfigHolder.HIVE_USE_JDBC.defaultValue()
+  val DEFAULT_HIVE_USE_JDBC_OPT_VAL = HiveSyncConfig.HIVE_USE_JDBC.defaultValue()
   /** @deprecated Use {@link HIVE_AUTO_CREATE_DATABASE} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_AUTO_CREATE_DATABASE_OPT_KEY = HiveSyncConfigHolder.HIVE_AUTO_CREATE_DATABASE.defaultValue()
+  val DEFAULT_HIVE_AUTO_CREATE_DATABASE_OPT_KEY = HiveSyncConfig.HIVE_AUTO_CREATE_DATABASE.defaultValue()
   /** @deprecated Use {@link HIVE_IGNORE_EXCEPTIONS} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_IGNORE_EXCEPTIONS_OPT_KEY = HiveSyncConfigHolder.HIVE_IGNORE_EXCEPTIONS.defaultValue()
+  val DEFAULT_HIVE_IGNORE_EXCEPTIONS_OPT_KEY = HiveSyncConfig.HIVE_IGNORE_EXCEPTIONS.defaultValue()
   /** @deprecated Use {@link HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE} and its methods instead */
   @Deprecated
-  val HIVE_SKIP_RO_SUFFIX = HiveSyncConfigHolder.HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE.key()
+  val HIVE_SKIP_RO_SUFFIX = HiveSyncConfig.HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE.key()
   /** @deprecated Use {@link HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_SKIP_RO_SUFFIX_VAL = HiveSyncConfigHolder.HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE.defaultValue()
+  val DEFAULT_HIVE_SKIP_RO_SUFFIX_VAL = HiveSyncConfig.HIVE_SKIP_RO_SUFFIX_FOR_READ_OPTIMIZED_TABLE.defaultValue()
   /** @deprecated Use {@link HIVE_SUPPORT_TIMESTAMP_TYPE} and its methods instead */
   @Deprecated
-  val HIVE_SUPPORT_TIMESTAMP = HiveSyncConfigHolder.HIVE_SUPPORT_TIMESTAMP_TYPE.key()
+  val HIVE_SUPPORT_TIMESTAMP = HiveSyncConfig.HIVE_SUPPORT_TIMESTAMP_TYPE.key()
   /** @deprecated Use {@link HIVE_SUPPORT_TIMESTAMP_TYPE} and its methods instead */
   @Deprecated
-  val DEFAULT_HIVE_SUPPORT_TIMESTAMP = HiveSyncConfigHolder.HIVE_SUPPORT_TIMESTAMP_TYPE.defaultValue()
+  val DEFAULT_HIVE_SUPPORT_TIMESTAMP = HiveSyncConfig.HIVE_SUPPORT_TIMESTAMP_TYPE.defaultValue()
   /** @deprecated Use {@link ASYNC_COMPACT_ENABLE} and its methods instead */
   @Deprecated
   val ASYNC_COMPACT_ENABLE_OPT_KEY = ASYNC_COMPACT_ENABLE.key()
@@ -822,33 +771,18 @@ object DataSourceOptionsHelper {
   def parametersWithReadDefaults(parameters: Map[String, String]): Map[String, String] = {
     // First check if the ConfigUtils.IS_QUERY_AS_RO_TABLE has set by HiveSyncTool,
     // or else use query type from QUERY_TYPE.
-    val paramsWithGlobalProps = DFSPropertiesConfiguration.getGlobalProps.asScala.toMap ++ parameters
-    val queryType = paramsWithGlobalProps.get(ConfigUtils.IS_QUERY_AS_RO_TABLE)
+    val queryType = parameters.get(ConfigUtils.IS_QUERY_AS_RO_TABLE)
       .map(is => if (is.toBoolean) QUERY_TYPE_READ_OPTIMIZED_OPT_VAL else QUERY_TYPE_SNAPSHOT_OPT_VAL)
-      .getOrElse(paramsWithGlobalProps.getOrElse(QUERY_TYPE.key, QUERY_TYPE.defaultValue()))
+      .getOrElse(parameters.getOrElse(QUERY_TYPE.key, QUERY_TYPE.defaultValue()))
 
     Map(
       QUERY_TYPE.key -> queryType
-    ) ++ translateConfigurations(paramsWithGlobalProps)
+    ) ++ translateConfigurations(parameters)
   }
 
-  def inferKeyGenClazz(props: TypedProperties): String = {
-    val partitionFields = props.getString(DataSourceWriteOptions.PARTITIONPATH_FIELD.key(), null)
-    val recordsKeyFields = props.getString(DataSourceWriteOptions.RECORDKEY_FIELD.key(), null)
-    inferKeyGenClazz(recordsKeyFields, partitionFields)
-  }
-
-  def inferKeyGenClazz(recordsKeyFields: String, partitionFields: String): String = {
-    if (!StringUtils.isNullOrEmpty(partitionFields)) {
-      val numPartFields = partitionFields.split(",").length
-      val numRecordKeyFields = recordsKeyFields.split(",").length
-      if (numPartFields == 1 && numRecordKeyFields == 1) {
-        classOf[SimpleKeyGenerator].getName
-      } else {
-        classOf[ComplexKeyGenerator].getName
-      }
-    } else {
-      classOf[NonpartitionedKeyGenerator].getName
+  implicit def scalaFunctionToJavaFunction[From, To](function: (From) => To): JavaFunction[From, To] = {
+    new JavaFunction[From, To] {
+      override def apply (input: From): To = function (input)
     }
   }
 

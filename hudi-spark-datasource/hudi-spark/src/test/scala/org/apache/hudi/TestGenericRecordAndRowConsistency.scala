@@ -20,7 +20,6 @@ package org.apache.hudi
 import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.testutils.HoodieClientTestBase
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.junit.jupiter.api.Assertions.{assertArrayEquals, assertEquals}
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
 
 import java.sql.{Date, Timestamp}
@@ -114,6 +113,6 @@ class TestGenericRecordAndRowConsistency extends HoodieClientTestBase {
       .select("_hoodie_record_key")
       .map(_.toString()).collect().sorted
 
-    assertEquals(data1.toSeq, data2.toSeq)
+    assert(data1 sameElements data2)
   }
 }

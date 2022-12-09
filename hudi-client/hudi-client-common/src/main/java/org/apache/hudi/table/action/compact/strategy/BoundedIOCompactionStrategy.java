@@ -22,6 +22,9 @@ import org.apache.hudi.avro.model.HoodieCompactionOperation;
 import org.apache.hudi.avro.model.HoodieCompactionPlan;
 import org.apache.hudi.config.HoodieWriteConfig;
 
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,6 +35,7 @@ import java.util.List;
  * @see CompactionStrategy
  */
 public class BoundedIOCompactionStrategy extends CompactionStrategy {
+  private static final Logger LOG = LogManager.getLogger(BoundedIOCompactionStrategy.class);
 
   @Override
   public List<HoodieCompactionOperation> orderAndFilter(HoodieWriteConfig writeConfig,
@@ -49,6 +53,10 @@ public class BoundedIOCompactionStrategy extends CompactionStrategy {
         return finalOperations;
       }
     }
+
+    //TODO metric
+    LOG.info(
+        "remain compaction io : " + targetIORemaining + ", compaction io max : " + writeConfig.getTargetIOPerCompactionInMB() + ", remain rate : " + (double) targetIORemaining / targetIORemaining);
     return finalOperations;
   }
 }

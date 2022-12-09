@@ -23,7 +23,6 @@ import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
 import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -36,9 +35,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * Tests {@link CommitUtils}.
- */
 public class TestCommitUtils {
 
   @Test

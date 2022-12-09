@@ -32,8 +32,6 @@ import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.config.HoodieCleanConfig;
-import org.apache.hudi.config.HoodieArchivalConfig;
 import org.apache.hudi.config.HoodieCompactionConfig;
 import org.apache.hudi.config.HoodieHBaseIndexConfig;
 import org.apache.hudi.config.HoodieIndexConfig;
@@ -87,9 +85,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.apache.hadoop.hbase.HConstants.ZOOKEEPER_CLIENT_PORT;
-import static org.apache.hadoop.hbase.HConstants.ZOOKEEPER_ZNODE_PARENT;
-import static org.apache.hadoop.hbase.HConstants.ZOOKEEPER_QUORUM;
 
 /**
  * Note :: HBaseTestingUtility is really flaky with issues where the HbaseMiniCluster fails to shutdown across tests,
@@ -114,7 +109,7 @@ public class TestSparkHoodieHBaseIndex extends SparkClientFunctionalTestHarness 
   public static void init() throws Exception {
     // Initialize HbaseMiniCluster
     hbaseConfig = HBaseConfiguration.create();
-    hbaseConfig.set(ZOOKEEPER_ZNODE_PARENT, "/hudi-hbase-test");
+    hbaseConfig.set("zookeeper.znode.parent", "/hudi-hbase-test");
 
     utility = new HBaseTestingUtility(hbaseConfig);
     utility.startMiniCluster();
@@ -482,9 +477,9 @@ public class TestSparkHoodieHBaseIndex extends SparkClientFunctionalTestHarness 
   public void testHbaseTagLocationForArchivedCommits() throws Exception {
     // Load to memory
     Map<String, String> params = new HashMap<String, String>();
-    params.put(HoodieCleanConfig.CLEANER_COMMITS_RETAINED.key(), "1");
-    params.put(HoodieArchivalConfig.MAX_COMMITS_TO_KEEP.key(), "3");
-    params.put(HoodieArchivalConfig.MIN_COMMITS_TO_KEEP.key(), "2");
+    params.put(HoodieCompactionConfig.CLEANER_COMMITS_RETAINED.key(), "1");
+    params.put(HoodieCompactionConfig.MAX_COMMITS_TO_KEEP.key(), "3");
+    params.put(HoodieCompactionConfig.MIN_COMMITS_TO_KEEP.key(), "2");
     HoodieWriteConfig config = getConfigBuilder(100, false, false).withProps(params).build();
 
     SparkHoodieHBaseIndex index = new SparkHoodieHBaseIndex(config);
@@ -819,10 +814,10 @@ public class TestSparkHoodieHBaseIndex extends SparkClientFunctionalTestHarness 
         .forTable("test-trip-table")
         .withIndexConfig(HoodieIndexConfig.newBuilder().withIndexType(HoodieIndex.IndexType.HBASE)
             .withHBaseIndexConfig(new HoodieHBaseIndexConfig.Builder()
-                .hbaseZkPort(Integer.parseInt(hbaseConfig.get(ZOOKEEPER_CLIENT_PORT)))
+                .hbaseZkPort(Integer.parseInt(hbaseConfig.get("hbase.zookeeper.property.clientPort")))
                 .hbaseIndexPutBatchSizeAutoCompute(true)
-                .hbaseZkZnodeParent(hbaseConfig.get(ZOOKEEPER_ZNODE_PARENT, ""))
-                .hbaseZkQuorum(hbaseConfig.get(ZOOKEEPER_QUORUM)).hbaseTableName(TABLE_NAME)
+                .hbaseZkZnodeParent(hbaseConfig.get("zookeeper.znode.parent", ""))
+                .hbaseZkQuorum(hbaseConfig.get("hbase.zookeeper.quorum")).hbaseTableName(TABLE_NAME)
                 .hbaseIndexUpdatePartitionPath(updatePartitionPath)
                 .hbaseIndexRollbackSync(rollbackSync)
                 .hbaseIndexGetBatchSize(hbaseIndexBatchSize).build())

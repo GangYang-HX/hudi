@@ -54,6 +54,8 @@ public class WriteMetadataEvent implements OperatorEvent {
    */
   private boolean bootstrap;
 
+  private long watermark;
+
   /**
    * Creates an event.
    *
@@ -72,13 +74,15 @@ public class WriteMetadataEvent implements OperatorEvent {
       List<WriteStatus> writeStatuses,
       boolean lastBatch,
       boolean endInput,
-      boolean bootstrap) {
+      boolean bootstrap,
+      long watermark) {
     this.taskID = taskID;
     this.instantTime = instantTime;
     this.writeStatuses = new ArrayList<>(writeStatuses);
     this.lastBatch = lastBatch;
     this.endInput = endInput;
     this.bootstrap = bootstrap;
+    this.watermark = watermark;
   }
 
   // default constructor for efficient serialization
@@ -140,6 +144,14 @@ public class WriteMetadataEvent implements OperatorEvent {
     this.lastBatch = lastBatch;
   }
 
+  public long getWatermark() {
+    return watermark;
+  }
+
+  public void setWatermark(long watermark) {
+    this.watermark = watermark;
+  }
+
   /**
    * Merges this event with given {@link WriteMetadataEvent} {@code other}.
    *
@@ -163,18 +175,6 @@ public class WriteMetadataEvent implements OperatorEvent {
     return lastBatch && this.instantTime.equals(currentInstant);
   }
 
-  @Override
-  public String toString() {
-    return "WriteMetadataEvent{"
-        + "writeStatusesSize=" + writeStatuses.size()
-        + ", taskID=" + taskID
-        + ", instantTime='" + instantTime + '\''
-        + ", lastBatch=" + lastBatch
-        + ", endInput=" + endInput
-        + ", bootstrap=" + bootstrap
-        + '}';
-  }
-
   // -------------------------------------------------------------------------
   //  Utilities
   // -------------------------------------------------------------------------
@@ -194,6 +194,18 @@ public class WriteMetadataEvent implements OperatorEvent {
         .build();
   }
 
+  @Override
+  public String toString() {
+    return "WriteMetadataEvent{" + "writeStatuses=" + writeStatuses
+        + ", taskID=" + taskID
+        + ", instantTime='" + instantTime
+        + ", lastBatch=" + lastBatch
+        + ", watermark=" + watermark
+        + ", endInput=" + endInput
+        + ", bootstrap=" + bootstrap
+        + '}';
+  }
+
   // -------------------------------------------------------------------------
   //  Builder
   // -------------------------------------------------------------------------
@@ -208,12 +220,13 @@ public class WriteMetadataEvent implements OperatorEvent {
     private boolean lastBatch = false;
     private boolean endInput = false;
     private boolean bootstrap = false;
+    private long watermark;
 
     public WriteMetadataEvent build() {
       Objects.requireNonNull(taskID);
       Objects.requireNonNull(instantTime);
       Objects.requireNonNull(writeStatus);
-      return new WriteMetadataEvent(taskID, instantTime, writeStatus, lastBatch, endInput, bootstrap);
+      return new WriteMetadataEvent(taskID, instantTime, writeStatus, lastBatch, endInput, bootstrap, watermark);
     }
 
     public Builder taskID(int taskID) {
@@ -228,6 +241,11 @@ public class WriteMetadataEvent implements OperatorEvent {
 
     public Builder writeStatus(List<WriteStatus> writeStatus) {
       this.writeStatus = writeStatus;
+      return this;
+    }
+
+    public Builder watermark(long watermark) {
+      this.watermark = watermark;
       return this;
     }
 

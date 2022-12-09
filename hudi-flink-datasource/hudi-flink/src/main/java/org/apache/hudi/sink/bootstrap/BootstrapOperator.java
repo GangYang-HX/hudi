@@ -22,7 +22,6 @@ import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.FileSlice;
 import org.apache.hudi.common.model.HoodieAvroRecord;
 import org.apache.hudi.common.model.HoodieKey;
-import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordGlobalLocation;
 import org.apache.hudi.common.table.TableSchemaResolver;
@@ -35,14 +34,13 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.configuration.FlinkOptions;
-import org.apache.hudi.configuration.HadoopConfigurations;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.sink.bootstrap.aggregate.BootstrapAggFunction;
-import org.apache.hudi.sink.meta.CkpMetadata;
+import org.apache.hudi.metadata.CkpMetadata;
 import org.apache.hudi.table.HoodieTable;
 import org.apache.hudi.table.format.FormatUtils;
 import org.apache.hudi.util.FlinkTables;
-import org.apache.hudi.util.FlinkWriteClients;
+import org.apache.hudi.util.StreamerUtil;
 
 import org.apache.avro.Schema;
 import org.apache.flink.annotation.VisibleForTesting;
@@ -124,8 +122,8 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
       }
     }
 
-    this.hadoopConf = HadoopConfigurations.getHadoopConf(this.conf);
-    this.writeConfig = FlinkWriteClients.getHoodieClientConfig(this.conf, true);
+    this.hadoopConf = StreamerUtil.getHadoopConf();
+    this.writeConfig = StreamerUtil.getHoodieClientConfig(this.conf, true);
     this.hoodieTable = FlinkTables.createTable(writeConfig, hadoopConf, getRuntimeContext());
     this.ckpMetadata = CkpMetadata.getInstance(hoodieTable.getMetaClient().getFs(), this.writeConfig.getBasePath());
     this.aggregateManager = getRuntimeContext().getGlobalAggregateManager();
@@ -160,7 +158,7 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
     int readyTaskNum = 1;
     while (taskNum != readyTaskNum) {
       try {
-        readyTaskNum = aggregateManager.updateGlobalAggregate(BootstrapAggFunction.NAME + conf.getString(FlinkOptions.TABLE_NAME), taskID, new BootstrapAggFunction());
+        readyTaskNum = aggregateManager.updateGlobalAggregate(BootstrapAggFunction.NAME, taskID, new BootstrapAggFunction());
         LOG.info("Waiting for other bootstrap tasks to complete, taskId = {}.", taskID);
 
         TimeUnit.SECONDS.sleep(5);
@@ -200,7 +198,7 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
       Schema schema = new TableSchemaResolver(this.hoodieTable.getMetaClient()).getTableAvroSchema();
 
       List<FileSlice> fileSlices = this.hoodieTable.getSliceView()
-          .getLatestMergedFileSlicesBeforeOrOn(partitionPath, latestCommitTime.get().getTimestamp())
+          .getLatestFileSlicesBeforeOrOn(partitionPath, latestCommitTime.get().getTimestamp(), true)
           .collect(toList());
 
       for (FileSlice fileSlice : fileSlices) {
@@ -224,7 +222,6 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
 
         // load avro log records
         List<String> logPaths = fileSlice.getLogFiles()
-            .sorted(HoodieLogFile.getLogFileComparator())
             // filter out crushed files
             .filter(logFile -> isValidFile(logFile.getFileStatus()))
             .map(logFile -> logFile.getPath().toString())
@@ -241,12 +238,22 @@ public class BootstrapOperator<I, O extends HoodieRecord<?>>
         } finally {
           scanner.close();
         }
+        LOG.info("index load files:" + printListString(logPaths));
       }
     }
 
     long cost = System.currentTimeMillis() - start;
     LOG.info("Task [{}}:{}}] finish loading the index under partition {} and sending them to downstream, time cost: {} milliseconds.",
         this.getClass().getSimpleName(), taskID, partitionPath, cost);
+  }
+
+  public String printListString(List<String> list) {
+    StringBuffer sb = new StringBuffer();
+    for (String str: list) {
+      sb.append("\n");
+      sb.append(str);
+    }
+    return sb.toString();
   }
 
   @SuppressWarnings("unchecked")

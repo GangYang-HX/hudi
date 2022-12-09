@@ -24,10 +24,10 @@ import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.hadoop.utils.HoodieInputFormatUtils;
 import org.apache.hudi.util.StreamerUtil;
 
 import org.apache.flink.core.fs.Path;
@@ -85,29 +85,6 @@ public class WriteProfiles {
   /**
    * Returns all the incremental write file statuses with the given commits metadata.
    *
-   * <p> Different with {@link #getWritePathsOfInstants}, the files are not filtered by
-   * existence.
-   *
-   * @param basePath     Table base path
-   * @param hadoopConf   The hadoop conf
-   * @param metadataList The commits metadata
-   * @param tableType    The table type
-   * @return the file status array
-   */
-  public static FileStatus[] getRawWritePathsOfInstants(
-      Path basePath,
-      Configuration hadoopConf,
-      List<HoodieCommitMetadata> metadataList,
-      HoodieTableType tableType) {
-    Map<String, FileStatus> uniqueIdToFileStatus = new HashMap<>();
-    metadataList.forEach(metadata ->
-        uniqueIdToFileStatus.putAll(getFilesToReadOfInstant(basePath, metadata, hadoopConf, tableType)));
-    return uniqueIdToFileStatus.values().toArray(new FileStatus[0]);
-  }
-
-  /**
-   * Returns all the incremental write file statuses with the given commits metadata.
-   *
    * @param basePath     Table base path
    * @param hadoopConf   The hadoop conf
    * @param metadataList The commits metadata
@@ -124,25 +101,6 @@ public class WriteProfiles {
     metadataList.forEach(metadata ->
         uniqueIdToFileStatus.putAll(getFilesToReadOfInstant(basePath, metadata, fs, tableType)));
     return uniqueIdToFileStatus.values().toArray(new FileStatus[0]);
-  }
-
-  /**
-   * Returns the commit file status info with given metadata.
-   *
-   * @param basePath   Table base path
-   * @param metadata   The metadata
-   * @param hadoopConf The filesystem
-   * @param tableType  The table type
-   * @return the commit file status info grouping by specific ID
-   */
-  private static Map<String, FileStatus> getFilesToReadOfInstant(
-      Path basePath,
-      HoodieCommitMetadata metadata,
-      Configuration hadoopConf,
-      HoodieTableType tableType) {
-    return getFilesToRead(hadoopConf, metadata, basePath.toString(), tableType).entrySet().stream()
-        .filter(entry -> StreamerUtil.isValidFile(entry.getValue()))
-        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 
   /**
@@ -233,7 +191,7 @@ public class WriteProfiles {
       HoodieInstant instant,
       HoodieTimeline timeline) {
     try {
-      return TimelineUtils.getCommitMetadata(instant, timeline);
+      return HoodieInputFormatUtils.getCommitMetadata(instant, timeline);
     } catch (IOException e) {
       LOG.error("Get write metadata for table {} with instant {} and path: {} error",
           tableName, instant.getTimestamp(), basePath);

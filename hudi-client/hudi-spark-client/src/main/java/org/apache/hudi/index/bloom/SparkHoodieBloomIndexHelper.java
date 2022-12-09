@@ -43,6 +43,7 @@ import java.util.stream.Collectors;
 
 import scala.Tuple2;
 
+import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getCompletedMetadataPartitions;
 import static org.apache.hudi.metadata.MetadataPartitionType.BLOOM_FILTERS;
 
 /**
@@ -80,7 +81,7 @@ public class SparkHoodieBloomIndexHelper extends BaseHoodieBloomIndexHelper {
 
     JavaRDD<List<HoodieKeyLookupResult>> keyLookupResultRDD;
     if (config.getBloomIndexUseMetadata()
-        && hoodieTable.getMetaClient().getTableConfig().getMetadataPartitions()
+        && getCompletedMetadataPartitions(hoodieTable.getMetaClient().getTableConfig())
         .contains(BLOOM_FILTERS.getPartitionPath())) {
       // Step 1: Sort by file id
       JavaRDD<Tuple2<String, HoodieKey>> sortedFileIdAndKeyPairs =
@@ -125,7 +126,7 @@ public class SparkHoodieBloomIndexHelper extends BaseHoodieBloomIndexHelper {
     if (config.getBloomIndexPruneByRanges()) {
       // we will just try exploding the input and then count to determine comparisons
       // FIX(vc): Only do sampling here and extrapolate?
-      context.setJobStatus(this.getClass().getSimpleName(), "Compute all comparisons needed between records and files: " + config.getTableName());
+      context.setJobStatus(this.getClass().getSimpleName(), "Compute all comparisons needed between records and files");
       fileToComparisons = fileComparisonsRDD.mapToPair(t -> t).countByKey();
     } else {
       fileToComparisons = new HashMap<>();

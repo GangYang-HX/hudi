@@ -17,8 +17,7 @@
 
 package org.apache.hudi
 
-import org.apache.spark.sql.HoodieCatalystExpressionUtils
-import org.apache.spark.sql.catalyst.expressions.Expression
+import org.apache.hudi.HoodieSparkUtils.convertToCatalystExpression
 import org.apache.spark.sql.sources._
 import org.apache.spark.sql.types._
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -35,16 +34,6 @@ class TestConvertFilterToCatalystExpression {
     fields.append(StructField("price", DoubleType, nullable = true))
     fields.append(StructField("ts", IntegerType, nullable = false))
     StructType(fields)
-  }
-
-  private def convertToCatalystExpression(filters: Array[Filter],
-                                  tableSchema: StructType): Option[Expression] = {
-    val expressions = filters.map(HoodieCatalystExpressionUtils.convertToCatalystExpression(_, tableSchema))
-    if (expressions.nonEmpty && expressions.forall(p => p.isDefined)) {
-      Some(expressions.map(_.get).reduce(org.apache.spark.sql.catalyst.expressions.And))
-    } else {
-      None
-    }
   }
 
   @Test
@@ -80,12 +69,12 @@ class TestConvertFilterToCatalystExpression {
   private def checkConvertFilter(filter: Filter, expectExpression: String): Unit = {
     // [SPARK-25769][SPARK-34636][SPARK-34626][SQL] sql method in UnresolvedAttribute,
     // AttributeReference and Alias don't quote qualified names properly
-    val removeQuotesIfNeed = if (expectExpression != null && HoodieSparkUtils.gteqSpark3_2) {
+    val removeQuotesIfNeed = if (expectExpression != null && HoodieSparkUtils.isSpark3_2) {
       expectExpression.replace("`", "")
     } else {
       expectExpression
     }
-    val exp = HoodieCatalystExpressionUtils.convertToCatalystExpression(filter, tableSchema)
+    val exp = convertToCatalystExpression(filter, tableSchema)
     if (removeQuotesIfNeed == null) {
       assertEquals(exp.isEmpty, true)
     } else {
@@ -97,7 +86,7 @@ class TestConvertFilterToCatalystExpression {
   private def checkConvertFilters(filters: Array[Filter], expectExpression: String): Unit = {
     // [SPARK-25769][SPARK-34636][SPARK-34626][SQL] sql method in UnresolvedAttribute,
     // AttributeReference and Alias don't quote qualified names properly
-    val removeQuotesIfNeed = if (expectExpression != null && HoodieSparkUtils.gteqSpark3_2) {
+    val removeQuotesIfNeed = if (expectExpression != null && HoodieSparkUtils.isSpark3_2) {
       expectExpression.replace("`", "")
     } else {
       expectExpression

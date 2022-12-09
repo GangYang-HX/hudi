@@ -23,9 +23,6 @@ import org.apache.hudi.common.config.ConfigGroups;
 import org.apache.hudi.common.config.ConfigProperty;
 import org.apache.hudi.common.config.HoodieConfig;
 
-/**
- * Key generator configs.
- */
 @ConfigClassProperty(name = "Key Generator Options",
     groupName = ConfigGroups.Names.WRITE_CLIENT,
     description = "Hudi maintains keys (record key + partition path) "
@@ -48,7 +45,7 @@ public class KeyGeneratorOptions extends HoodieConfig {
 
   public static final ConfigProperty<String> RECORDKEY_FIELD_NAME = ConfigProperty
       .key("hoodie.datasource.write.recordkey.field")
-      .noDefaultValue()
+      .defaultValue("uuid")
       .withDocumentation("Record key field. Value to be used as the `recordKey` component of `HoodieKey`.\n"
           + "Actual value will be obtained by invoking .toString() on the field value. Nested fields can be specified using\n"
           + "the dot notation eg: `a.b.c`");

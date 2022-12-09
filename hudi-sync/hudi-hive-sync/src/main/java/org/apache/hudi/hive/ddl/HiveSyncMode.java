@@ -37,7 +37,8 @@ public enum HiveSyncMode {
   /**
    * The JDBC mode use hive jdbc to sync metadata.
    */
-  JDBC;
+  JDBC
+  ;
 
   public static HiveSyncMode of(String syncMode) {
     return HiveSyncMode.valueOf(syncMode.toUpperCase(Locale.ROOT));

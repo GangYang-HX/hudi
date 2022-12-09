@@ -23,19 +23,16 @@ import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
-import org.apache.hudi.common.util.queue.HoodieExecutor;
+import org.apache.hudi.common.util.queue.BoundedInMemoryExecutor;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.io.WriteHandleFactory;
 import org.apache.hudi.table.HoodieTable;
 
 import org.apache.avro.Schema;
-import org.apache.hudi.util.QueueBasedExecutorFactory;
 
 import java.util.Iterator;
 import java.util.List;
-
-import static org.apache.hudi.common.util.ValidationUtils.checkState;
 
 public class SparkLazyInsertIterable<T extends HoodieRecordPayload> extends HoodieLazyInsertIterable<T> {
 
@@ -80,25 +77,24 @@ public class SparkLazyInsertIterable<T extends HoodieRecordPayload> extends Hood
   @Override
   protected List<WriteStatus> computeNext() {
     // Executor service used for launching writer thread.
-    HoodieExecutor<?, ?, List<WriteStatus>> bufferedIteratorExecutor = null;
+    BoundedInMemoryExecutor<HoodieRecord<T>, HoodieInsertValueGenResult<HoodieRecord>, List<WriteStatus>> bufferedIteratorExecutor =
+        null;
     try {
       Schema schema = new Schema.Parser().parse(hoodieConfig.getSchema());
       if (useWriterSchema) {
         schema = HoodieAvroUtils.addMetadataFields(schema);
       }
-
-      bufferedIteratorExecutor = QueueBasedExecutorFactory.create(hoodieConfig, inputItr, getInsertHandler(),
-          getTransformFunction(schema, hoodieConfig), hoodieTable.getPreExecuteRunnable());
-
+      bufferedIteratorExecutor =
+          new BoundedInMemoryExecutor<>(hoodieConfig.getWriteBufferLimitBytes(), inputItr, getInsertHandler(),
+              getTransformFunction(schema, hoodieConfig), hoodieTable.getPreExecuteRunnable());
       final List<WriteStatus> result = bufferedIteratorExecutor.execute();
-      checkState(result != null && !result.isEmpty());
+      assert result != null && !result.isEmpty() && !bufferedIteratorExecutor.isRemaining();
       return result;
     } catch (Exception e) {
       throw new HoodieException(e);
     } finally {
       if (null != bufferedIteratorExecutor) {
         bufferedIteratorExecutor.shutdownNow();
-        bufferedIteratorExecutor.awaitTermination();
       }
     }
   }

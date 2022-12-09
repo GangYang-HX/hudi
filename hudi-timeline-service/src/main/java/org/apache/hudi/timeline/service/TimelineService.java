@@ -18,8 +18,6 @@
 
 package org.apache.hudi.timeline.service;
 
-import io.javalin.core.JavalinConfig;
-import io.javalin.jetty.JettyServer;
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.config.SerializableConfiguration;
@@ -33,6 +31,7 @@ import org.apache.hudi.common.table.view.FileSystemViewStorageType;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 import io.javalin.Javalin;
+import io.javalin.core.util.JettyServerUtil;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.log4j.LogManager;
@@ -124,6 +123,9 @@ public class TimelineService {
     @Parameter(names = {"--marker-parallelism", "-mdp"}, description = "Parallelism to use for reading and deleting marker files")
     public int markerParallelism = 100;
 
+    @Parameter(names = {"--refreshTimelineBasedOnLatestCommit"}, description = "Refresh local timeline based on latest commit in addition to timeline hash value")
+    public boolean refreshTimelineBasedOnLatestCommit = true;
+
     @Parameter(names = {"--help", "-h"})
     public Boolean help = false;
 
@@ -148,6 +150,7 @@ public class TimelineService {
       private int markerBatchNumThreads = 20;
       private long markerBatchIntervalMs = 50L;
       private int markerParallelism = 100;
+      private boolean refreshTimelineBasedOnLatestCommit = false;
 
       public Builder() {
       }
@@ -194,6 +197,11 @@ public class TimelineService {
 
       public Builder compress(boolean compress) {
         this.compress = compress;
+        return this;
+      }
+
+      public Builder refreshTimelineBasedOnLatestCommit(boolean refreshTimelineBasedOnLatestCommit) {
+        this.refreshTimelineBasedOnLatestCommit = refreshTimelineBasedOnLatestCommit;
         return this;
       }
 
@@ -265,14 +273,13 @@ public class TimelineService {
   }
 
   public int startService() throws IOException {
-    final Server server = timelineServerConf.numThreads == DEFAULT_NUM_THREADS ? new JettyServer(new JavalinConfig()).server() :
-            new Server(new QueuedThreadPool(timelineServerConf.numThreads));
-    app = Javalin.create(c -> {
-      if (!timelineServerConf.compress) {
-        c.compressionStrategy(io.javalin.core.compression.CompressionStrategy.NONE);
-      }
-      c.server(() -> server);
-    });
+    final Server server = timelineServerConf.numThreads == DEFAULT_NUM_THREADS ? JettyServerUtil.defaultServer()
+            : new Server(new QueuedThreadPool(timelineServerConf.numThreads));
+
+    app = Javalin.create().server(() -> server);
+    if (!timelineServerConf.compress) {
+      app.disableDynamicGzip();
+    }
 
     requestHandler = new RequestHandler(
         app, conf, timelineServerConf, context, fs, fsViewsManager);

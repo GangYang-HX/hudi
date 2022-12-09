@@ -18,11 +18,10 @@
 
 package org.apache.hudi.common.model;
 
-import org.apache.hudi.common.fs.FSUtils;
-
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.common.fs.FSUtils;
 
 import java.io.IOException;
 import java.io.Serializable;
@@ -40,9 +39,6 @@ public class HoodieLogFile implements Serializable {
   private static final long serialVersionUID = 1L;
   public static final String DELTA_EXTENSION = ".log";
   public static final Integer LOGFILE_BASE_VERSION = 1;
-
-  private static final Comparator<HoodieLogFile> LOG_FILE_COMPARATOR = new LogFileComparator();
-  private static final Comparator<HoodieLogFile> LOG_FILE_COMPARATOR_REVERSED = new LogFileComparator().reversed();
 
   private transient FileStatus fileStatus;
   private final String pathStr;
@@ -133,11 +129,11 @@ public class HoodieLogFile implements Serializable {
   }
 
   public static Comparator<HoodieLogFile> getLogFileComparator() {
-    return LOG_FILE_COMPARATOR;
+    return new LogFileComparator();
   }
 
   public static Comparator<HoodieLogFile> getReverseLogFileComparator() {
-    return LOG_FILE_COMPARATOR_REVERSED;
+    return new LogFileComparator().reversed();
   }
 
   /**

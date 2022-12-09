@@ -18,12 +18,13 @@
 
 package org.apache.hudi.internal.schema.utils;
 
+import org.apache.avro.Schema;
 import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Types;
 import org.apache.hudi.internal.schema.action.TableChanges;
 import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 
-import org.apache.avro.Schema;
-
+import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -32,80 +33,73 @@ import java.util.stream.Collectors;
  * Utility methods to support evolve old avro schema based on a given schema.
  */
 public class AvroSchemaEvolutionUtils {
-
   /**
-   * Support reconcile from a new avroSchema.
-   * 1) incoming data has missing columns that were already defined in the table –> null values will be injected into missing columns
-   * 2) incoming data contains new columns not defined yet in the table -> columns will be added to the table schema (incoming dataframe?)
-   * 3) incoming data has missing columns that are already defined in the table and new columns not yet defined in the table ->
-   *     new columns will be added to the table schema, missing columns will be injected with null values
-   * 4) support type change
-   * 5) support nested schema change.
-   * Notice:
-   *    the incoming schema should not have delete/rename semantics.
-   *    for example: incoming schema:  int a, int b, int d;   oldTableSchema int a, int b, int c, int d
-   *    we must guarantee the column c is missing semantic, instead of delete semantic.
-   * @param incomingSchema implicitly evolution of avro when hoodie write operation
-   * @param oldTableSchema old internalSchema
-   * @return reconcile Schema
+   * Support evolution from a new avroSchema.
+   * Now hoodie support implicitly add columns when hoodie write operation,
+   * This ability needs to be preserved, so implicitly evolution for internalSchema should supported.
+   *
+   * @param evolvedSchema implicitly evolution of avro when hoodie write operation
+   * @param oldSchema old internalSchema
+   * @param supportPositionReorder support position reorder
+   * @return evolution Schema
    */
-  public static InternalSchema reconcileSchema(Schema incomingSchema, InternalSchema oldTableSchema) {
-    InternalSchema inComingInternalSchema = AvroInternalSchemaConverter.convert(incomingSchema);
-    // check column add/missing
-    List<String> colNamesFromIncoming = inComingInternalSchema.getAllColsFullName();
-    List<String> colNamesFromOldSchema = oldTableSchema.getAllColsFullName();
-    List<String> diffFromOldSchema = colNamesFromOldSchema.stream().filter(f -> !colNamesFromIncoming.contains(f)).collect(Collectors.toList());
-    List<String> diffFromEvolutionColumns = colNamesFromIncoming.stream().filter(f -> !colNamesFromOldSchema.contains(f)).collect(Collectors.toList());
-    // check type change.
-    List<String> typeChangeColumns = colNamesFromIncoming
-        .stream()
-        .filter(f -> colNamesFromOldSchema.contains(f) && !inComingInternalSchema.findType(f).equals(oldTableSchema.findType(f)))
-        .collect(Collectors.toList());
-    if (colNamesFromIncoming.size() == colNamesFromOldSchema.size() && diffFromOldSchema.size() == 0 && typeChangeColumns.isEmpty()) {
-      return oldTableSchema;
+  public static InternalSchema evolveSchemaFromNewAvroSchema(Schema evolvedSchema, InternalSchema oldSchema, Boolean supportPositionReorder) {
+    InternalSchema evolvedInternalSchema = AvroInternalSchemaConverter.convert(evolvedSchema);
+    // do check, only support add column evolution
+    List<String> colNamesFromEvolved = evolvedInternalSchema.getAllColsFullName();
+    List<String> colNamesFromOldSchema = oldSchema.getAllColsFullName();
+    List<String> diffFromOldSchema = colNamesFromOldSchema.stream().filter(f -> !colNamesFromEvolved.contains(f)).collect(Collectors.toList());
+    List<Types.Field> newFields = new ArrayList<>();
+    if (colNamesFromEvolved.size() == colNamesFromOldSchema.size() && diffFromOldSchema.size() == 0) {
+      // no changes happen
+      if (supportPositionReorder) {
+        evolvedInternalSchema.getRecord().fields().forEach(f -> newFields.add(oldSchema.getRecord().field(f.name())));
+        return new InternalSchema(newFields);
+      }
+      return oldSchema;
+    }
+    // try to find all added columns
+    if (diffFromOldSchema.size() != 0) {
+      throw new UnsupportedOperationException("Cannot evolve schema implicitly, find delete/rename operation");
     }
 
+    List<String> diffFromEvolutionSchema = colNamesFromEvolved.stream().filter(f -> !colNamesFromOldSchema.contains(f)).collect(Collectors.toList());
     // Remove redundancy from diffFromEvolutionSchema.
     // for example, now we add a struct col in evolvedSchema, the struct col is " user struct<name:string, age:int> "
     // when we do diff operation: user, user.name, user.age will appeared in the resultSet which is redundancy, user.name and user.age should be excluded.
     // deal with add operation
     TreeMap<Integer, String> finalAddAction = new TreeMap<>();
-    for (int i = 0; i < diffFromEvolutionColumns.size(); i++)  {
-      String name = diffFromEvolutionColumns.get(i);
+    for (int i = 0; i < diffFromEvolutionSchema.size(); i++)  {
+      String name = diffFromEvolutionSchema.get(i);
       int splitPoint = name.lastIndexOf(".");
       String parentName = splitPoint > 0 ? name.substring(0, splitPoint) : "";
-      if (!parentName.isEmpty() && diffFromEvolutionColumns.contains(parentName)) {
+      if (!parentName.isEmpty() && diffFromEvolutionSchema.contains(parentName)) {
         // find redundancy, skip it
         continue;
       }
-      finalAddAction.put(inComingInternalSchema.findIdByName(name), name);
+      finalAddAction.put(evolvedInternalSchema.findIdByName(name), name);
     }
 
-    TableChanges.ColumnAddChange addChange = TableChanges.ColumnAddChange.get(oldTableSchema);
+    TableChanges.ColumnAddChange addChange = TableChanges.ColumnAddChange.get(oldSchema);
     finalAddAction.entrySet().stream().forEach(f -> {
       String name = f.getValue();
       int splitPoint = name.lastIndexOf(".");
       String parentName = splitPoint > 0 ? name.substring(0, splitPoint) : "";
       String rawName = splitPoint > 0 ? name.substring(splitPoint + 1) : name;
-      // try to infer add position.
-      java.util.Optional<String> inferPosition =
-          colNamesFromIncoming.stream().filter(c ->
-              c.lastIndexOf(".") == splitPoint
-                  && c.startsWith(parentName)
-                  && inComingInternalSchema.findIdByName(c) >  inComingInternalSchema.findIdByName(name)
-                  && oldTableSchema.findIdByName(c) > 0).sorted((s1, s2) -> oldTableSchema.findIdByName(s1) - oldTableSchema.findIdByName(s2)).findFirst();
-      addChange.addColumns(parentName, rawName, inComingInternalSchema.findType(name), null);
-      inferPosition.map(i -> addChange.addPositionChange(name, i, "before"));
+      addChange.addColumns(parentName, rawName, evolvedInternalSchema.findType(name), null);
     });
 
-    // do type evolution.
-    InternalSchema internalSchemaAfterAddColumns = SchemaChangeUtils.applyTableChanges2Schema(oldTableSchema, addChange);
-    TableChanges.ColumnUpdateChange typeChange = TableChanges.ColumnUpdateChange.get(internalSchemaAfterAddColumns);
-    typeChangeColumns.stream().filter(f -> !inComingInternalSchema.findType(f).isNestedType()).forEach(col -> {
-      typeChange.updateColumnType(col, inComingInternalSchema.findType(col));
-    });
+    InternalSchema res = SchemaChangeUtils.applyTableChanges2Schema(oldSchema, addChange);
+    if (supportPositionReorder) {
+      evolvedInternalSchema.getRecord().fields().forEach(f -> newFields.add(oldSchema.getRecord().field(f.name())));
+      return new InternalSchema(newFields);
+    } else {
+      return res;
+    }
+  }
 
-    return SchemaChangeUtils.applyTableChanges2Schema(internalSchemaAfterAddColumns, typeChange);
+  public static InternalSchema evolveSchemaFromNewAvroSchema(Schema evolvedSchema, InternalSchema oldSchema) {
+    return evolveSchemaFromNewAvroSchema(evolvedSchema, oldSchema, false);
   }
 
   /**
@@ -141,8 +135,8 @@ public class AvroSchemaEvolutionUtils {
     // try to correct all changes
     TableChanges.ColumnUpdateChange updateChange = TableChanges.ColumnUpdateChange.get(writeInternalSchema);
     candidateUpdateCols.stream().forEach(f -> updateChange.updateColumnNullability(f, true));
-    InternalSchema updatedSchema = SchemaChangeUtils.applyTableChanges2Schema(writeInternalSchema, updateChange);
-    return AvroInternalSchemaConverter.convert(updatedSchema, writeSchema.getFullName());
+    Schema result = AvroInternalSchemaConverter.convert(SchemaChangeUtils.applyTableChanges2Schema(writeInternalSchema, updateChange), writeSchema.getName());
+    return result;
   }
 }
 

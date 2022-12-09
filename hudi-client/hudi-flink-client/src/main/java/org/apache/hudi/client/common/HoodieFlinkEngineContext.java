@@ -23,7 +23,7 @@ import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.data.HoodieAccumulator;
 import org.apache.hudi.common.data.HoodieAtomicLongAccumulator;
 import org.apache.hudi.common.data.HoodieData;
-import org.apache.hudi.common.data.HoodieListData;
+import org.apache.hudi.common.data.HoodieList;
 import org.apache.hudi.common.engine.EngineProperty;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.engine.TaskContextSupplier;
@@ -33,9 +33,6 @@ import org.apache.hudi.common.function.SerializableFunction;
 import org.apache.hudi.common.function.SerializablePairFlatMapFunction;
 import org.apache.hudi.common.function.SerializablePairFunction;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.collection.ImmutablePair;
-import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.util.FlinkClientUtil;
 
 import org.apache.flink.api.common.functions.RuntimeContext;
 
@@ -47,6 +44,10 @@ import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import org.apache.hudi.common.util.collection.ImmutablePair;
+import org.apache.hudi.common.util.collection.Pair;
+import org.apache.hudi.util.FlinkClientUtil;
 
 import static org.apache.hudi.common.function.FunctionWrapper.throwingFlatMapToPairWrapper;
 import static org.apache.hudi.common.function.FunctionWrapper.throwingFlatMapWrapper;
@@ -67,10 +68,6 @@ public class HoodieFlinkEngineContext extends HoodieEngineContext {
     this(new SerializableConfiguration(FlinkClientUtil.getHadoopConf()), new DefaultTaskContextSupplier());
   }
 
-  public HoodieFlinkEngineContext(org.apache.hadoop.conf.Configuration hadoopConf) {
-    this(new SerializableConfiguration(hadoopConf), new DefaultTaskContextSupplier());
-  }
-
   public HoodieFlinkEngineContext(TaskContextSupplier taskContextSupplier) {
     this(new SerializableConfiguration(FlinkClientUtil.getHadoopConf()), taskContextSupplier);
   }
@@ -87,12 +84,12 @@ public class HoodieFlinkEngineContext extends HoodieEngineContext {
 
   @Override
   public <T> HoodieData<T> emptyHoodieData() {
-    return HoodieListData.eager(Collections.emptyList());
+    return HoodieList.of(Collections.emptyList());
   }
 
   @Override
   public <T> HoodieData<T> parallelize(List<T> data, int parallelism) {
-    return HoodieListData.eager(data);
+    return HoodieList.of(data);
   }
 
   public RuntimeContext getRuntimeContext() {

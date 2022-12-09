@@ -55,13 +55,15 @@ public class MergeOnReadRollbackActionExecutor<T extends HoodieRecordPayload, I,
                                            HoodieInstant commitInstant,
                                            boolean deleteInstants,
                                            boolean skipTimelinePublish,
+                                           boolean useMarkerBasedStrategy,
                                            boolean skipLocking) {
-    super(context, config, table, instantTime, commitInstant, deleteInstants, skipTimelinePublish, skipLocking);
+    super(context, config, table, instantTime, commitInstant, deleteInstants, skipTimelinePublish, useMarkerBasedStrategy, skipLocking);
   }
 
   @Override
   protected List<HoodieRollbackStat> executeRollback(HoodieRollbackPlan hoodieRollbackPlan) {
-    HoodieTimer rollbackTimer = HoodieTimer.start();
+    HoodieTimer rollbackTimer = new HoodieTimer();
+    rollbackTimer.startTimer();
 
     LOG.info("Rolling back instant " + instantToRollback);
 

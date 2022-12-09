@@ -31,6 +31,7 @@ import org.apache.hadoop.fs.Path;
  */
 public class HiveSyncNode extends DagNode<Boolean> {
 
+
   public HiveSyncNode(Config config) {
     this.config = config;
   }

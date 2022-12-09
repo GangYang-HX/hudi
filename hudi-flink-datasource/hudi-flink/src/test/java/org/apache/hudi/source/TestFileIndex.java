@@ -19,6 +19,7 @@
 package org.apache.hudi.source;
 
 import org.apache.hudi.common.model.HoodieFileFormat;
+import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator;
 import org.apache.hudi.utils.TestConfigurations;
 import org.apache.hudi.utils.TestData;
@@ -39,11 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import static org.apache.hudi.configuration.FlinkOptions.HIVE_STYLE_PARTITIONING;
-import static org.apache.hudi.configuration.FlinkOptions.KEYGEN_CLASS_NAME;
-import static org.apache.hudi.configuration.FlinkOptions.METADATA_ENABLED;
-import static org.apache.hudi.configuration.FlinkOptions.PARTITION_DEFAULT_NAME;
-import static org.apache.hudi.configuration.FlinkOptions.PARTITION_PATH_FIELD;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,12 +55,12 @@ public class TestFileIndex {
   @ValueSource(booleans = {true, false})
   void testFileListingUsingMetadata(boolean hiveStylePartitioning) throws Exception {
     Configuration conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
-    conf.setBoolean(METADATA_ENABLED, true);
-    conf.setBoolean(HIVE_STYLE_PARTITIONING, hiveStylePartitioning);
+    conf.setBoolean(FlinkOptions.METADATA_ENABLED, true);
+    conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, hiveStylePartitioning);
     TestData.writeData(TestData.DATA_SET_INSERT, conf);
-    FileIndex fileIndex = FileIndex.instance(new Path(tempFile.getAbsolutePath()), conf, TestConfigurations.ROW_TYPE);
+    FileIndex fileIndex = FileIndex.instance(new Path(tempFile.getAbsolutePath()), conf);
     List<String> partitionKeys = Collections.singletonList("partition");
-    List<Map<String, String>> partitions = fileIndex.getPartitions(partitionKeys, PARTITION_DEFAULT_NAME.defaultValue(), hiveStylePartitioning);
+    List<Map<String, String>> partitions = fileIndex.getPartitions(partitionKeys, "default", hiveStylePartitioning);
     assertTrue(partitions.stream().allMatch(m -> m.size() == 1));
     String partitionPaths = partitions.stream()
         .map(Map::values).flatMap(Collection::stream).sorted().collect(Collectors.joining(","));
@@ -79,13 +75,13 @@ public class TestFileIndex {
   @Test
   void testFileListingUsingMetadataNonPartitionedTable() throws Exception {
     Configuration conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
-    conf.setString(PARTITION_PATH_FIELD, "");
-    conf.setString(KEYGEN_CLASS_NAME, NonpartitionedAvroKeyGenerator.class.getName());
-    conf.setBoolean(METADATA_ENABLED, true);
+    conf.setString(FlinkOptions.PARTITION_PATH_FIELD, "");
+    conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, NonpartitionedAvroKeyGenerator.class.getName());
+    conf.setBoolean(FlinkOptions.METADATA_ENABLED, true);
     TestData.writeData(TestData.DATA_SET_INSERT, conf);
-    FileIndex fileIndex = FileIndex.instance(new Path(tempFile.getAbsolutePath()), conf, TestConfigurations.ROW_TYPE);
+    FileIndex fileIndex = FileIndex.instance(new Path(tempFile.getAbsolutePath()), conf);
     List<String> partitionKeys = Collections.singletonList("");
-    List<Map<String, String>> partitions = fileIndex.getPartitions(partitionKeys, PARTITION_DEFAULT_NAME.defaultValue(), false);
+    List<Map<String, String>> partitions = fileIndex.getPartitions(partitionKeys, "default", false);
     assertThat(partitions.size(), is(0));
 
     FileStatus[] fileStatuses = fileIndex.getFilesInPartitions();
@@ -97,10 +93,10 @@ public class TestFileIndex {
   @ValueSource(booleans = {true, false})
   void testFileListingEmptyTable(boolean enableMetadata) {
     Configuration conf = TestConfigurations.getDefaultConf(tempFile.getAbsolutePath());
-    conf.setBoolean(METADATA_ENABLED, enableMetadata);
-    FileIndex fileIndex = FileIndex.instance(new Path(tempFile.getAbsolutePath()), conf, TestConfigurations.ROW_TYPE);
+    conf.setBoolean(FlinkOptions.METADATA_ENABLED, enableMetadata);
+    FileIndex fileIndex = FileIndex.instance(new Path(tempFile.getAbsolutePath()), conf);
     List<String> partitionKeys = Collections.singletonList("partition");
-    List<Map<String, String>> partitions = fileIndex.getPartitions(partitionKeys, PARTITION_DEFAULT_NAME.defaultValue(), false);
+    List<Map<String, String>> partitions = fileIndex.getPartitions(partitionKeys, "default", false);
     assertThat(partitions.size(), is(0));
 
     FileStatus[] fileStatuses = fileIndex.getFilesInPartitions();

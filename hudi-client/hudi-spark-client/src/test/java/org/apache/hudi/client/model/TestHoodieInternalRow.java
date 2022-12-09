@@ -21,7 +21,6 @@ package org.apache.hudi.client.model;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.expressions.GenericInternalRow;
 import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.unsafe.types.UTF8String;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -65,13 +64,7 @@ public class TestHoodieInternalRow {
     Object[] values = getRandomValue(true);
 
     InternalRow row = new GenericInternalRow(values);
-    HoodieInternalRow hoodieInternalRow = new HoodieInternalRow(UTF8String.fromString("commitTime"),
-        UTF8String.fromString("commitSeqNo"),
-        UTF8String.fromString("recordKey"),
-        UTF8String.fromString("partitionPath"),
-        UTF8String.fromString("fileName"),
-        row,
-        true);
+    HoodieInternalRow hoodieInternalRow = new HoodieInternalRow("commitTime", "commitSeqNo", "recordKey", "partitionPath", "fileName", row);
 
     assertValues(hoodieInternalRow, "commitTime", "commitSeqNo", "recordKey", "partitionPath",
         "fileName", values, nullIndices);
@@ -81,13 +74,7 @@ public class TestHoodieInternalRow {
   public void testUpdate() {
     Object[] values = getRandomValue(true);
     InternalRow row = new GenericInternalRow(values);
-    HoodieInternalRow hoodieInternalRow = new HoodieInternalRow(UTF8String.fromString("commitTime"),
-        UTF8String.fromString("commitSeqNo"),
-        UTF8String.fromString("recordKey"),
-        UTF8String.fromString("partitionPath"),
-        UTF8String.fromString("fileName"),
-        row,
-        true);
+    HoodieInternalRow hoodieInternalRow = new HoodieInternalRow("commitTime", "commitSeqNo", "recordKey", "partitionPath", "fileName", row);
 
     hoodieInternalRow.update(0, "commitTime_updated");
     hoodieInternalRow.update(1, "commitSeqNo_updated");
@@ -113,41 +100,13 @@ public class TestHoodieInternalRow {
   }
 
   @Test
-  public void testNumFields() {
-    Object[] values = getRandomValue(true);
-    InternalRow row = new GenericInternalRow(values);
-    HoodieInternalRow hoodieInternalRow1 = new HoodieInternalRow(UTF8String.fromString("commitTime"),
-        UTF8String.fromString("commitSeqNo"),
-        UTF8String.fromString("recordKey"),
-        UTF8String.fromString("partitionPath"),
-        UTF8String.fromString("fileName"),
-        row,
-        true);
-    HoodieInternalRow hoodieInternalRow2 = new HoodieInternalRow(UTF8String.fromString("commitTime"),
-        UTF8String.fromString("commitSeqNo"),
-        UTF8String.fromString("recordKey"),
-        UTF8String.fromString("partitionPath"),
-        UTF8String.fromString("fileName"),
-        row,
-        false);
-    assertEquals(row.numFields(), hoodieInternalRow1.numFields());
-    assertEquals(row.numFields() + 5, hoodieInternalRow2.numFields());
-  }
-
-  @Test
   public void testIsNullCheck() {
 
     for (int i = 0; i < 16; i++) {
       Object[] values = getRandomValue(true);
 
       InternalRow row = new GenericInternalRow(values);
-      HoodieInternalRow hoodieInternalRow = new HoodieInternalRow(UTF8String.fromString("commitTime"),
-          UTF8String.fromString("commitSeqNo"),
-          UTF8String.fromString("recordKey"),
-          UTF8String.fromString("partitionPath"),
-          UTF8String.fromString("fileName"),
-          row,
-          true);
+      HoodieInternalRow hoodieInternalRow = new HoodieInternalRow("commitTime", "commitSeqNo", "recordKey", "partitionPath", "fileName", row);
 
       hoodieInternalRow.setNullAt(i);
       nullIndices.clear();
@@ -170,13 +129,7 @@ public class TestHoodieInternalRow {
 
       Object[] values = getRandomValue(true);
       InternalRow row = new GenericInternalRow(values);
-      HoodieInternalRow hoodieInternalRow = new HoodieInternalRow(UTF8String.fromString("commitTime"),
-          UTF8String.fromString("commitSeqNo"),
-          UTF8String.fromString("recordKey"),
-          UTF8String.fromString("partitionPath"),
-          UTF8String.fromString("fileName"),
-          row,
-          true);
+      HoodieInternalRow hoodieInternalRow = new HoodieInternalRow("commitTime", "commitSeqNo", "recordKey", "partitionPath", "fileName", row);
 
       nullIndices.clear();
 
@@ -220,7 +173,7 @@ public class TestHoodieInternalRow {
   }
 
   private void assertValues(HoodieInternalRow hoodieInternalRow, String commitTime, String commitSeqNo, String recordKey, String partitionPath, String filename, Object[] values,
-                            List<Integer> nullIndexes) {
+      List<Integer> nullIndexes) {
     for (Integer index : nullIndexes) {
       assertTrue(hoodieInternalRow.isNullAt(index));
     }

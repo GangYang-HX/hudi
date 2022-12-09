@@ -54,18 +54,29 @@ public abstract class HoodieSparkTable<T extends HoodieRecordPayload>
   }
 
   public static <T extends HoodieRecordPayload> HoodieSparkTable<T> create(HoodieWriteConfig config, HoodieEngineContext context) {
+    return create(config, context, false);
+  }
+
+  public static <T extends HoodieRecordPayload> HoodieSparkTable<T> create(HoodieWriteConfig config, HoodieEngineContext context,
+                                                                           boolean refreshTimeline) {
     HoodieTableMetaClient metaClient =
         HoodieTableMetaClient.builder().setConf(context.getHadoopConf().get()).setBasePath(config.getBasePath())
             .setLoadActiveTimelineOnLoad(true).setConsistencyGuardConfig(config.getConsistencyGuardConfig())
             .setLayoutVersion(Option.of(new TimelineLayoutVersion(config.getTimelineLayoutVersion())))
-            .setFileSystemRetryConfig(config.getFileSystemRetryConfig())
-            .setProperties(config.getProps()).build();
-    return HoodieSparkTable.create(config, (HoodieSparkEngineContext) context, metaClient);
+            .setFileSystemRetryConfig(config.getFileSystemRetryConfig()).build();
+    return HoodieSparkTable.create(config, (HoodieSparkEngineContext) context, metaClient, refreshTimeline);
   }
 
   public static <T extends HoodieRecordPayload> HoodieSparkTable<T> create(HoodieWriteConfig config,
                                                                            HoodieSparkEngineContext context,
                                                                            HoodieTableMetaClient metaClient) {
+    return create(config, context, metaClient, false);
+  }
+
+  public static <T extends HoodieRecordPayload> HoodieSparkTable<T> create(HoodieWriteConfig config,
+                                                                           HoodieSparkEngineContext context,
+                                                                           HoodieTableMetaClient metaClient,
+                                                                           boolean refreshTimeline) {
     HoodieSparkTable<T> hoodieSparkTable;
     switch (metaClient.getTableType()) {
       case COPY_ON_WRITE:
@@ -76,6 +87,9 @@ public abstract class HoodieSparkTable<T extends HoodieRecordPayload>
         break;
       default:
         throw new HoodieException("Unsupported table type :" + metaClient.getTableType());
+    }
+    if (refreshTimeline) {
+      hoodieSparkTable.getHoodieView().sync();
     }
     return hoodieSparkTable;
   }

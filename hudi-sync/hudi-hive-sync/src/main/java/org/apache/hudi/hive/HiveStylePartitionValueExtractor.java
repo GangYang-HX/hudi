@@ -18,8 +18,6 @@
 
 package org.apache.hudi.hive;
 
-import org.apache.hudi.sync.common.model.PartitionValueExtractor;
-
 import java.util.Collections;
 import java.util.List;
 

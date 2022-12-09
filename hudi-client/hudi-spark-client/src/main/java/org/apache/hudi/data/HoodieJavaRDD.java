@@ -26,7 +26,6 @@ import org.apache.hudi.common.function.SerializableFunction;
 import org.apache.hudi.common.function.SerializablePairFunction;
 import org.apache.hudi.common.util.collection.Pair;
 
-import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.storage.StorageLevel;
 
@@ -40,7 +39,7 @@ import scala.Tuple2;
  *
  * @param <T> type of object.
  */
-public class HoodieJavaRDD<T> implements HoodieData<T> {
+public class HoodieJavaRDD<T> extends HoodieData<T> {
 
   private final JavaRDD<T> rddData;
 
@@ -75,16 +74,17 @@ public class HoodieJavaRDD<T> implements HoodieData<T> {
    * @return the a {@link JavaRDD} of objects in type T.
    */
   public static <T> JavaRDD<T> getJavaRDD(HoodieData<T> hoodieData) {
-    return ((HoodieJavaRDD<T>) hoodieData).rddData;
-  }
-
-  public static <K, V> JavaPairRDD<K, V> getJavaRDD(HoodiePairData<K, V> hoodieData) {
-    return ((HoodieJavaPairRDD<K, V>) hoodieData).get();
+    return ((HoodieJavaRDD<T>) hoodieData).get();
   }
 
   @Override
-  public void persist(String level) {
-    rddData.persist(StorageLevel.fromString(level));
+  public JavaRDD<T> get() {
+    return rddData;
+  }
+
+  @Override
+  public void persist(String cacheConfig) {
+    rddData.persist(StorageLevel.fromString(cacheConfig));
   }
 
   @Override
@@ -103,11 +103,6 @@ public class HoodieJavaRDD<T> implements HoodieData<T> {
   }
 
   @Override
-  public int getNumPartitions() {
-    return rddData.getNumPartitions();
-  }
-
-  @Override
   public <O> HoodieData<O> map(SerializableFunction<T, O> func) {
     return HoodieJavaRDD.of(rddData.map(func::apply));
   }
@@ -123,9 +118,9 @@ public class HoodieJavaRDD<T> implements HoodieData<T> {
   }
 
   @Override
-  public <K, V> HoodiePairData<K, V> mapToPair(SerializablePairFunction<T, K, V> func) {
+  public <K, V> HoodiePairData<K, V> mapToPair(SerializablePairFunction<T, K, V> mapToPairFunc) {
     return HoodieJavaPairRDD.of(rddData.mapToPair(input -> {
-      Pair<K, V> pair = func.call(input);
+      Pair<K, V> pair = mapToPairFunc.call(input);
       return new Tuple2<>(pair.getLeft(), pair.getRight());
     }));
   }
@@ -141,13 +136,20 @@ public class HoodieJavaRDD<T> implements HoodieData<T> {
   }
 
   @Override
+  public <O> HoodieData<T> distinctWithKey(SerializableFunction<T, O> keyGetter, int parallelism) {
+    return mapToPair(i -> Pair.of(keyGetter.apply(i), i))
+        .reduceByKey((value1, value2) -> value1, parallelism)
+        .values();
+  }
+
+  @Override
   public HoodieData<T> filter(SerializableFunction<T, Boolean> filterFunc) {
     return HoodieJavaRDD.of(rddData.filter(filterFunc::apply));
   }
 
   @Override
   public HoodieData<T> union(HoodieData<T> other) {
-    return HoodieJavaRDD.of(rddData.union(((HoodieJavaRDD<T>) other).rddData));
+    return HoodieJavaRDD.of(rddData.union((JavaRDD<T>) other.get()));
   }
 
   @Override

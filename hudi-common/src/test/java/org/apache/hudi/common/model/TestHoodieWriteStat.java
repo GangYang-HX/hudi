@@ -20,7 +20,6 @@ package org.apache.hudi.common.model;
 
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
-
 import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +45,7 @@ public class TestHoodieWriteStat {
     Path basePath = new Path(basePathString);
     Path partitionPath = new Path(basePath, partitionPathString);
 
-    Path finalizeFilePath = new Path(partitionPath, FSUtils.makeBaseFileName(instantTime, writeToken, fileName));
+    Path finalizeFilePath = new Path(partitionPath, FSUtils.makeDataFileName(instantTime, writeToken, fileName));
     HoodieWriteStat writeStat = new HoodieWriteStat();
     writeStat.setPath(basePath, finalizeFilePath);
     assertEquals(finalizeFilePath, new Path(basePath, writeStat.getPath()));

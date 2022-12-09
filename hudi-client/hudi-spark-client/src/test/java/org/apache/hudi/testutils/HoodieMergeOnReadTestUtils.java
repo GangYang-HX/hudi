@@ -40,8 +40,6 @@ import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.RecordReader;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -52,47 +50,6 @@ import java.util.stream.Collectors;
  * Utility methods to aid in testing MergeOnRead (workaround for HoodieReadClient for MOR).
  */
 public class HoodieMergeOnReadTestUtils {
-
-  private static final Logger LOG = LogManager.getLogger(HoodieMergeOnReadTestUtils.class);
-
-  public static List<RecordReader> getRecordReadersUsingInputFormat(Configuration conf, List<String> inputPaths,
-                                                                    String basePath, JobConf jobConf, boolean realtime, boolean populateMetaField) {
-    Schema schema = new Schema.Parser().parse(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA);
-    return getRecordReadersUsingInputFormat(conf, inputPaths, basePath, jobConf, realtime, schema,
-        HoodieTestDataGenerator.TRIP_HIVE_COLUMN_TYPES, false, new ArrayList<>(), populateMetaField);
-  }
-
-  public static List<RecordReader> getRecordReadersUsingInputFormat(Configuration conf, List<String> inputPaths, String basePath, JobConf jobConf, boolean realtime, Schema rawSchema,
-                                                                    String rawHiveColumnTypes, boolean projectCols, List<String> projectedColumns, boolean populateMetaFields) {
-    HoodieTableMetaClient metaClient = HoodieTableMetaClient.builder().setConf(conf).setBasePath(basePath).build();
-    FileInputFormat inputFormat = HoodieInputFormatUtils.getInputFormat(metaClient.getTableConfig().getBaseFileFormat(), realtime, jobConf);
-    Schema schema;
-    String hiveColumnTypes;
-
-    if (populateMetaFields) {
-      schema = HoodieAvroUtils.addMetadataFields(rawSchema);
-      hiveColumnTypes = HoodieAvroUtils.addMetadataColumnTypes(rawHiveColumnTypes);
-    } else {
-      schema = rawSchema;
-      hiveColumnTypes = rawHiveColumnTypes;
-    }
-
-    setPropsForInputFormat(inputFormat, jobConf, schema, hiveColumnTypes, projectCols, projectedColumns, populateMetaFields);
-
-    try {
-      FileInputFormat.setInputPaths(jobConf, String.join(",", inputPaths));
-      InputSplit[] splits = inputFormat.getSplits(jobConf, inputPaths.size());
-
-      List<RecordReader> recordReaders = new ArrayList<>();
-      for (InputSplit split : splits) {
-        recordReaders.add(inputFormat.getRecordReader(split, jobConf, null));
-      }
-      return recordReaders;
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-    return null;
-  }
 
   public static List<GenericRecord> getRecordsUsingInputFormat(Configuration conf, List<String> inputPaths,
                                                                String basePath) {
@@ -168,7 +125,7 @@ public class HoodieMergeOnReadTestUtils {
         }
       }
     } catch (IOException ie) {
-      LOG.error(ie);
+      ie.printStackTrace();
     }
     return records;
   }

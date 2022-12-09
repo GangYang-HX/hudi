@@ -18,7 +18,7 @@
 package org.apache.spark.sql.hudi
 
 import org.apache.hudi.DataSourceWriteOptions
-import org.apache.hudi.avro.HoodieAvroUtils.getRootLevelFieldName
+import org.apache.hudi.common.model.DefaultHoodieRecordPayload
 import org.apache.hudi.common.table.HoodieTableConfig
 import org.apache.hudi.common.util.ValidationUtils
 import org.apache.spark.sql.SparkSession
@@ -46,6 +46,7 @@ object HoodieOptionConfig {
     .withSqlKey("primaryKey")
     .withHoodieKey(DataSourceWriteOptions.RECORDKEY_FIELD.key)
     .withTableConfigKey(HoodieTableConfig.RECORDKEY_FIELDS.key)
+    .defaultValue(DataSourceWriteOptions.RECORDKEY_FIELD.defaultValue())
     .build()
 
   val SQL_KEY_TABLE_TYPE: HoodieSQLOption[String] = buildConf()
@@ -65,7 +66,7 @@ object HoodieOptionConfig {
     .withSqlKey("payloadClass")
     .withHoodieKey(DataSourceWriteOptions.PAYLOAD_CLASS_NAME.key)
     .withTableConfigKey(HoodieTableConfig.PAYLOAD_CLASS_NAME.key)
-    .defaultValue(DataSourceWriteOptions.PAYLOAD_CLASS_NAME.defaultValue())
+    .defaultValue(classOf[DefaultHoodieRecordPayload].getName)
     .build()
 
   /**
@@ -197,14 +198,14 @@ object HoodieOptionConfig {
       .map(_.split(",").filter(_.length > 0))
     ValidationUtils.checkArgument(primaryKeys.nonEmpty, "No `primaryKey` is specified.")
     primaryKeys.get.foreach { primaryKey =>
-      ValidationUtils.checkArgument(schema.exists(f => resolver(f.name, getRootLevelFieldName(primaryKey))),
+      ValidationUtils.checkArgument(schema.exists(f => resolver(f.name, primaryKey)),
         s"Can't find primaryKey `$primaryKey` in ${schema.treeString}.")
     }
 
     // validate preCombine key
     val preCombineKey = sqlOptions.get(SQL_KEY_PRECOMBINE_FIELD.sqlKeyName)
     if (preCombineKey.isDefined && preCombineKey.get.nonEmpty) {
-      ValidationUtils.checkArgument(schema.exists(f => resolver(f.name, getRootLevelFieldName(preCombineKey.get))),
+      ValidationUtils.checkArgument(schema.exists(f => resolver(f.name, preCombineKey.get)),
         s"Can't find preCombineKey `${preCombineKey.get}` in ${schema.treeString}.")
     }
 

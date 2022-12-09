@@ -18,19 +18,21 @@
 
 package org.apache.hudi.aws.sync;
 
+import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.hive.HiveSyncTool;
 
 import com.beust.jcommander.JCommander;
 import org.apache.hadoop.conf.Configuration;
-
-import java.util.Properties;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hive.conf.HiveConf;
 
 /**
  * Currently Experimental. Utility class that implements syncing a Hudi Table with the
  * AWS Glue Data Catalog (https://docs.aws.amazon.com/glue/latest/dg/populate-data-catalog.html)
  * to enable querying via Glue ETLs, Athena etc.
- * <p>
+ *
  * Extends HiveSyncTool since most logic is similar to Hive syncing,
  * expect using a different client {@link AWSGlueCatalogSyncClient} that implements
  * the necessary functionality using Glue APIs.
@@ -39,23 +41,30 @@ import java.util.Properties;
  */
 public class AwsGlueCatalogSyncTool extends HiveSyncTool {
 
-  public AwsGlueCatalogSyncTool(Properties props, Configuration hadoopConf) {
-    super(props, hadoopConf);
+  public AwsGlueCatalogSyncTool(TypedProperties props, Configuration conf, FileSystem fs) {
+    super(props, new HiveConf(conf, HiveConf.class), fs);
+  }
+
+  public AwsGlueCatalogSyncTool(HiveSyncConfig hiveSyncConfig, HiveConf hiveConf, FileSystem fs) {
+    super(hiveSyncConfig, hiveConf, fs);
   }
 
   @Override
-  protected void initSyncClient(HiveSyncConfig hiveSyncConfig) {
-    syncClient = new AWSGlueCatalogSyncClient(hiveSyncConfig);
+  protected void initClient(HiveSyncConfig hiveSyncConfig, HiveConf hiveConf) {
+    hoodieHiveClient = new AWSGlueCatalogSyncClient(hiveSyncConfig, hiveConf, fs);
   }
 
   public static void main(String[] args) {
-    final HiveSyncConfig.HiveSyncConfigParams params = new HiveSyncConfig.HiveSyncConfigParams();
-    JCommander cmd = JCommander.newBuilder().addObject(params).build();
-    cmd.parse(args);
-    if (params.isHelp()) {
+    // parse the params
+    final HiveSyncConfig cfg = new HiveSyncConfig();
+    JCommander cmd = new JCommander(cfg, null, args);
+    if (cfg.help || args.length == 0) {
       cmd.usage();
-      System.exit(0);
+      System.exit(1);
     }
-    new AwsGlueCatalogSyncTool(params.toProps(), new Configuration()).syncHoodieTable();
+    FileSystem fs = FSUtils.getFs(cfg.basePath, new Configuration());
+    HiveConf hiveConf = new HiveConf();
+    hiveConf.addResource(fs.getConf());
+    new AwsGlueCatalogSyncTool(cfg, hiveConf, fs).syncHoodieTable();
   }
 }

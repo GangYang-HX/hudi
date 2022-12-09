@@ -18,10 +18,9 @@
 
 package org.apache.hudi.common.model;
 
-import org.apache.hudi.avro.model.HoodieFileStatus;
-
 import java.io.Serializable;
 import java.util.Objects;
+import org.apache.hudi.avro.model.HoodieFileStatus;
 
 /**
  * Value stored in the bootstrap index.

@@ -24,7 +24,6 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
-import java.net.URI;
 import java.util.Objects;
 
 /**
@@ -43,12 +42,12 @@ public class SerializablePath implements Serializable {
   }
 
   private void writeObject(ObjectOutputStream out) throws IOException {
-    out.writeObject(path.toUri());
+    out.writeUTF(path.toString());
   }
 
-  private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
-    URI uri = (URI) in.readObject();
-    path = new CachingPath(uri);
+  private void readObject(ObjectInputStream in) throws IOException {
+    String pathStr = in.readUTF();
+    path = new CachingPath(pathStr);
   }
 
   @Override

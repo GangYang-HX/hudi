@@ -18,12 +18,11 @@
 
 package org.apache.hudi.integ.testsuite.dag.nodes;
 
-import org.apache.hudi.DataSourceWriteOptions;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.model.HoodieRecord;
-import org.apache.hudi.integ.testsuite.configuration.DeltaConfig;
+import org.apache.hudi.DataSourceWriteOptions;
+import org.apache.hudi.integ.testsuite.configuration.DeltaConfig.Config;
 import org.apache.hudi.integ.testsuite.dag.ExecutionContext;
-
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -36,15 +35,15 @@ import org.slf4j.LoggerFactory;
  */
 public class ValidateDatasetNode extends BaseValidateDatasetNode {
 
-  private static final Logger LOG = LoggerFactory.getLogger(ValidateDatasetNode.class);
+  private static Logger log = LoggerFactory.getLogger(ValidateDatasetNode.class);
 
-  public ValidateDatasetNode(DeltaConfig.Config config) {
+  public ValidateDatasetNode(Config config) {
     super(config);
   }
 
   @Override
   public Logger getLogger() {
-    return LOG;
+    return log;
   }
 
   @Override
@@ -52,7 +51,7 @@ public class ValidateDatasetNode extends BaseValidateDatasetNode {
                                            StructType inputSchema) {
     String partitionPathField = context.getWriterContext().getProps().getString(DataSourceWriteOptions.PARTITIONPATH_FIELD().key());
     String hudiPath = context.getHoodieTestSuiteWriter().getCfg().targetBasePath + (partitionPathField.isEmpty() ? "/" : "/*/*/*");
-    Dataset<Row> hudiDf = session.read().option(HoodieMetadataConfig.ENABLE.key(), String.valueOf(context.getHoodieTestSuiteWriter().getCfg().enableMetadataOnRead))
+    Dataset<Row> hudiDf = session.read().option(HoodieMetadataConfig.ENABLE.key(), String.valueOf(config.isEnableMetadataValidate()))
         .format("hudi").load(hudiPath);
     return hudiDf.drop(HoodieRecord.COMMIT_TIME_METADATA_FIELD).drop(HoodieRecord.COMMIT_SEQNO_METADATA_FIELD).drop(HoodieRecord.RECORD_KEY_METADATA_FIELD)
             .drop(HoodieRecord.PARTITION_PATH_METADATA_FIELD).drop(HoodieRecord.FILENAME_METADATA_FIELD);

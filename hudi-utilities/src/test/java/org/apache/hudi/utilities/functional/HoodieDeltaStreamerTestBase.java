@@ -27,9 +27,9 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.testutils.HoodieTestDataGenerator;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.hive.MultiPartKeysValueExtractor;
 import org.apache.hudi.utilities.schema.FilebasedSchemaProvider;
-import org.apache.hudi.utilities.sources.TestDataSource;
 import org.apache.hudi.utilities.testutils.UtilitiesTestBase;
 
 import org.apache.avro.Schema;
@@ -46,14 +46,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Random;
-
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_URL;
-import static org.apache.hudi.hive.testutils.HiveTestService.HS2_JDBC_URL;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_ASSUME_DATE_PARTITION;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_DATABASE_NAME;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_EXTRACTOR_CLASS;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_FIELDS;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_TABLE_NAME;
 
 public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
 
@@ -104,14 +96,14 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
 
   @BeforeAll
   public static void initClass() throws Exception {
-    UtilitiesTestBase.initTestServices(false, true, true);
-    PARQUET_SOURCE_ROOT = basePath + "/parquetFiles";
-    ORC_SOURCE_ROOT = basePath + "/orcFiles";
-    JSON_KAFKA_SOURCE_ROOT = basePath + "/jsonKafkaFiles";
+    UtilitiesTestBase.initClass(true);
+    PARQUET_SOURCE_ROOT = dfsBasePath + "/parquetFiles";
+    ORC_SOURCE_ROOT = dfsBasePath + "/orcFiles";
+    JSON_KAFKA_SOURCE_ROOT = dfsBasePath + "/jsonKafkaFiles";
     testUtils = new KafkaTestUtils();
     testUtils.setup();
     topicName = "topic" + testNum;
-    prepareInitialConfigs(fs, basePath, testUtils.brokerAddress());
+    prepareInitialConfigs(dfs, dfsBasePath, testUtils.brokerAddress());
 
     prepareParquetDFSFiles(PARQUET_NUM_RECORDS, PARQUET_SOURCE_ROOT);
     prepareORCDFSFiles(ORC_NUM_RECORDS, ORC_SOURCE_ROOT);
@@ -125,7 +117,6 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
         dfsBasePath + "/sql-transformer.properties");
     UtilitiesTestBase.Helpers.copyToDFS("delta-streamer-config/source.avsc", dfs, dfsBasePath + "/source.avsc");
     UtilitiesTestBase.Helpers.copyToDFS("delta-streamer-config/source_evolved.avsc", dfs, dfsBasePath + "/source_evolved.avsc");
-    UtilitiesTestBase.Helpers.copyToDFS("delta-streamer-config/source_evolved_post_processed.avsc", dfs, dfsBasePath + "/source_evolved_post_processed.avsc");
     UtilitiesTestBase.Helpers.copyToDFS("delta-streamer-config/source-flattened.avsc", dfs, dfsBasePath + "/source-flattened.avsc");
     UtilitiesTestBase.Helpers.copyToDFS("delta-streamer-config/target.avsc", dfs, dfsBasePath + "/target.avsc");
     UtilitiesTestBase.Helpers.copyToDFS("delta-streamer-config/target-flattened.avsc", dfs, dfsBasePath + "/target-flattened.avsc");
@@ -188,11 +179,11 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
     props.setProperty("hoodie.deltastreamer.schemaprovider.target.schema.file", dfsBasePath + "/target.avsc");
 
     // Hive Configs
-    props.setProperty(HIVE_URL.key(), HS2_JDBC_URL);
-    props.setProperty(META_SYNC_DATABASE_NAME.key(), "testdb1");
-    props.setProperty(META_SYNC_TABLE_NAME.key(), "hive_trips");
-    props.setProperty(META_SYNC_PARTITION_FIELDS.key(), "datestr");
-    props.setProperty(META_SYNC_PARTITION_EXTRACTOR_CLASS.key(),
+    props.setProperty(HiveSyncConfig.HIVE_URL.key(), "jdbc:hive2://127.0.0.1:9999/");
+    props.setProperty(HiveSyncConfig.META_SYNC_DATABASE_NAME.key(), "testdb1");
+    props.setProperty(HiveSyncConfig.META_SYNC_TABLE_NAME.key(), "hive_trips");
+    props.setProperty(HiveSyncConfig.META_SYNC_PARTITION_FIELDS.key(), "datestr");
+    props.setProperty(HiveSyncConfig.META_SYNC_PARTITION_EXTRACTOR_CLASS.key(),
         MultiPartKeysValueExtractor.class.getName());
     UtilitiesTestBase.Helpers.savePropsToDFS(props, dfs, dfsBasePath + "/" + PROPS_FILENAME_TEST_SOURCE);
   }
@@ -200,7 +191,6 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
   @BeforeEach
   public void setup() throws Exception {
     super.setup();
-    TestDataSource.returnEmptyBatch = false;
   }
 
   @AfterAll
@@ -248,11 +238,11 @@ public class HoodieDeltaStreamerTestBase extends UtilitiesTestBase {
 
   protected static void populateCommonHiveProps(TypedProperties props) {
     // Hive Configs
-    props.setProperty(HIVE_URL.key(), HS2_JDBC_URL);
-    props.setProperty(META_SYNC_DATABASE_NAME.key(), "testdb2");
-    props.setProperty(META_SYNC_ASSUME_DATE_PARTITION.key(), "false");
-    props.setProperty(META_SYNC_PARTITION_FIELDS.key(), "datestr");
-    props.setProperty(META_SYNC_PARTITION_EXTRACTOR_CLASS.key(),
+    props.setProperty(HiveSyncConfig.HIVE_URL.key(), "jdbc:hive2://127.0.0.1:9999/");
+    props.setProperty(HiveSyncConfig.META_SYNC_DATABASE_NAME.key(), "testdb2");
+    props.setProperty(HiveSyncConfig.META_SYNC_ASSUME_DATE_PARTITION.key(), "false");
+    props.setProperty(HiveSyncConfig.META_SYNC_PARTITION_FIELDS.key(), "datestr");
+    props.setProperty(HiveSyncConfig.META_SYNC_PARTITION_EXTRACTOR_CLASS.key(),
         MultiPartKeysValueExtractor.class.getName());
   }
 

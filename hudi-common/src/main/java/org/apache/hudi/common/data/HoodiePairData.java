@@ -26,7 +26,6 @@ import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.Pair;
 
 import java.io.Serializable;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,92 +35,71 @@ import java.util.Map;
  * @param <K> type of key.
  * @param <V> type of value.
  */
-public interface HoodiePairData<K, V> extends Serializable {
+public abstract class HoodiePairData<K, V> implements Serializable {
   /**
    * @return the collection of pairs.
    */
-  Object get();
+  public abstract Object get();
 
   /**
-   * Persists the data (if applicable)
+   * Caches the data.
    *
    * @param cacheConfig config value for caching.
    */
-  void persist(String cacheConfig);
+  public abstract void persist(String cacheConfig);
 
   /**
-   * Un-persists the data (if applicable)
+   * Removes the cached data.
    */
-  void unpersist();
+  public abstract void unpersist();
 
   /**
-   * Returns a {@link HoodieData} holding the key from every corresponding pair
+   * @return all keys in {@link HoodieData}.
    */
-  HoodieData<K> keys();
+  public abstract HoodieData<K> keys();
 
   /**
-   * Returns a {@link HoodieData} holding the value from every corresponding pair
+   * @return all values in {@link HoodieData}.
    */
-  HoodieData<V> values();
+  public abstract HoodieData<V> values();
 
   /**
-   * Returns number of held pairs
+   * @return the number of pairs.
    */
-  long count();
+  public abstract long count();
 
   /**
-   * Counts the number of pairs grouping them by key
+   * @return the number of pairs per key in a {@link Map}.
    */
-  Map<K, Long> countByKey();
+  public abstract Map<K, Long> countByKey();
 
-  /**
-   * Groups the values for each key in the dataset into a single sequence
-   */
-  HoodiePairData<K, Iterable<V>> groupByKey();
-
-  /**
-   * Reduces original sequence by de-duplicating the pairs w/ the same key, using provided
-   * binary operator {@code combiner}. Returns an instance of {@link HoodiePairData} holding
-   * the "de-duplicated" pairs, ie only pairs with unique keys.
-   *
-   * @param combiner method to combine values of the pairs with the same key
-   * @param parallelism target parallelism (if applicable)
-   */
-  HoodiePairData<K, V> reduceByKey(SerializableBiFunction<V, V, V> combiner, int parallelism);
+  public abstract HoodiePairData<K, V> reduceByKey(SerializableBiFunction<V, V, V> func, int parallelism);
 
   /**
    * @param func serializable map function.
    * @param <O>  output object type.
    * @return {@link HoodieData<O>} containing the result. Actual execution may be deferred.
    */
-  <O> HoodieData<O> map(SerializableFunction<Pair<K, V>, O> func);
+  public abstract <O> HoodieData<O> map(SerializableFunction<Pair<K, V>, O> func);
 
   /**
    * @param mapToPairFunc serializable map function to generate another pair.
    * @param <L>           new key type.
    * @param <W>           new value type.
-   * @return containing the result. Actual execution may be deferred.
+   * @return {@link HoodiePairData<L, W>} containing the result. Actual execution may be deferred.
    */
-  <L, W> HoodiePairData<L, W> mapToPair(
+  public abstract <L, W> HoodiePairData<L, W> mapToPair(
       SerializablePairFunction<Pair<K, V>, L, W> mapToPairFunc);
 
   /**
-   * Performs a left outer join of this dataset against {@code other}.
-   *
-   * For each element (k, v) in this, the resulting {@link HoodiePairData} will either contain all
-   * pairs {@code (k, (v, Some(w)))} for every {@code w} in the {@code other}, or the pair {@code (k, (v, None))}
-   * if no elements in {@code other} have the pair w/ a key {@code k}
+   * Performs a left outer join of this and other. For each element (k, v) in this,
+   * the resulting HoodiePairData will either contain all pairs (k, (v, Some(w))) for w in other,
+   * or the pair (k, (v, None)) if no elements in other have key k.
    *
    * @param other the other {@link HoodiePairData}
    * @param <W>   value type of the other {@link HoodiePairData}
-   * @return containing the result of the left outer join
+   * @return {@link HoodiePairData<K, Pair<V, Option<W>>>} containing the left outer join result.
+   * Actual execution may be deferred.
    */
-  <W> HoodiePairData<K, Pair<V, Option<W>>> leftOuterJoin(HoodiePairData<K, W> other);
-
-  /**
-   * Collects results of the underlying collection into a {@link List<Pair<K, V>>}
-   *
-   * This is a terminal operation
-   */
-  List<Pair<K, V>> collectAsList();
+  public abstract <W> HoodiePairData<K, Pair<V, Option<W>>> leftOuterJoin(HoodiePairData<K, W> other);
 }

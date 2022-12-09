@@ -25,7 +25,7 @@ import org.apache.hudi.avro.model.HoodieClusteringPlan;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.client.common.JavaTaskContextSupplier;
 import org.apache.hudi.common.data.HoodieData;
-import org.apache.hudi.common.data.HoodieListData;
+import org.apache.hudi.common.data.HoodieList;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.ClusteringOperation;
 import org.apache.hudi.common.model.HoodieAvroRecord;
@@ -41,7 +41,6 @@ import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieClusteringException;
-import org.apache.hudi.execution.bulkinsert.JavaBulkInsertInternalPartitionerFactory;
 import org.apache.hudi.execution.bulkinsert.JavaCustomColumnsSortPartitioner;
 import org.apache.hudi.io.IOUtils;
 import org.apache.hudi.io.storage.HoodieFileReader;
@@ -94,7 +93,7 @@ public abstract class JavaExecutionStrategy<T extends HoodieRecordPayload<T>>
             Option.ofNullable(clusteringPlan.getPreserveHoodieMetadata()).orElse(false),
             instantTime)));
     HoodieWriteMetadata<HoodieData<WriteStatus>> writeMetadata = new HoodieWriteMetadata<>();
-    writeMetadata.setWriteStatuses(HoodieListData.eager(writeStatusList));
+    writeMetadata.setWriteStatuses(HoodieList.of(writeStatusList));
     return writeMetadata;
   }
 
@@ -122,16 +121,16 @@ public abstract class JavaExecutionStrategy<T extends HoodieRecordPayload<T>>
    *
    * @param strategyParams Strategy parameters containing columns to sort the data by when clustering.
    * @param schema         Schema of the data including metadata fields.
-   * @return partitioner for the java engine
+   * @return empty for now.
    */
-  protected BulkInsertPartitioner<List<HoodieRecord<T>>> getPartitioner(Map<String, String> strategyParams, Schema schema) {
+  protected Option<BulkInsertPartitioner<List<HoodieRecord<T>>>> getPartitioner(Map<String, String> strategyParams, Schema schema) {
     if (strategyParams.containsKey(PLAN_STRATEGY_SORT_COLUMNS.key())) {
-      return new JavaCustomColumnsSortPartitioner(
+      return Option.of(new JavaCustomColumnsSortPartitioner(
           strategyParams.get(PLAN_STRATEGY_SORT_COLUMNS.key()).split(","),
           HoodieAvroUtils.addMetadataFields(schema),
-          getWriteConfig().isConsistentLogicalTimestampEnabled());
+          getWriteConfig().isConsistentLogicalTimestampEnabled()));
     } else {
-      return JavaBulkInsertInternalPartitionerFactory.get(getWriteConfig().getBulkInsertSortMode());
+      return Option.empty();
     }
   }
 
@@ -191,8 +190,6 @@ public abstract class JavaExecutionStrategy<T extends HoodieRecordPayload<T>>
             .withBufferSize(config.getMaxDFSStreamBufferSize())
             .withSpillableMapBasePath(config.getSpillableMapBasePath())
             .withPartition(clusteringOp.getPartitionPath())
-            .withDiskMapType(config.getCommonConfig().getSpillableDiskMapType())
-            .withBitCaskDiskMapCompressionEnabled(config.getCommonConfig().isBitCaskDiskMapCompressionEnabled())
             .build();
 
         Option<HoodieFileReader> baseFileReader = StringUtils.isNullOrEmpty(clusteringOp.getDataFilePath())

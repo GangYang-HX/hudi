@@ -23,8 +23,6 @@ import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.HoodiePrintHelper;
 import org.apache.hudi.cli.HoodieTableHeaderFields;
 import org.apache.hudi.cli.TableHeader;
-import org.apache.hudi.cli.utils.InputStreamConsumer;
-import org.apache.hudi.cli.utils.SparkUtil;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieActiveTimeline;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
@@ -33,10 +31,11 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.collection.Pair;
-import org.apache.spark.launcher.SparkLauncher;
-import org.springframework.shell.standard.ShellComponent;
-import org.springframework.shell.standard.ShellMethod;
-import org.springframework.shell.standard.ShellOption;
+
+import org.springframework.shell.core.CommandMarker;
+import org.springframework.shell.core.annotation.CliCommand;
+import org.springframework.shell.core.annotation.CliOption;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -49,16 +48,16 @@ import static org.apache.hudi.common.table.timeline.HoodieTimeline.ROLLBACK_ACTI
 /**
  * CLI command to display rollback options.
  */
-@ShellComponent
-public class RollbacksCommand {
+@Component
+public class RollbacksCommand implements CommandMarker {
 
-  @ShellMethod(key = "show rollbacks", value = "List all rollback instants")
+  @CliCommand(value = "show rollbacks", help = "List all rollback instants")
   public String showRollbacks(
-      @ShellOption(value = {"--limit"}, help = "Limit #rows to be displayed", defaultValue = "10") Integer limit,
-      @ShellOption(value = {"--sortBy"}, help = "Sorting Field", defaultValue = "") final String sortByField,
-      @ShellOption(value = {"--desc"}, help = "Ordering", defaultValue = "false") final boolean descending,
-      @ShellOption(value = {"--headeronly"}, help = "Print Header Only",
-          defaultValue = "false") final boolean headerOnly) {
+      @CliOption(key = {"limit"}, help = "Limit #rows to be displayed", unspecifiedDefaultValue = "10") Integer limit,
+      @CliOption(key = {"sortBy"}, help = "Sorting Field", unspecifiedDefaultValue = "") final String sortByField,
+      @CliOption(key = {"desc"}, help = "Ordering", unspecifiedDefaultValue = "false") final boolean descending,
+      @CliOption(key = {"headeronly"}, help = "Print Header Only",
+          unspecifiedDefaultValue = "false") final boolean headerOnly) {
     HoodieActiveTimeline activeTimeline = new RollbackTimeline(HoodieCLI.getTableMetaClient());
     HoodieTimeline rollback = activeTimeline.getRollbackTimeline().filterCompletedInstants();
 
@@ -88,14 +87,14 @@ public class RollbacksCommand {
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending, limit, headerOnly, rows);
   }
 
-  @ShellMethod(key = "show rollback", value = "Show details of a rollback instant")
+  @CliCommand(value = "show rollback", help = "Show details of a rollback instant")
   public String showRollback(
-      @ShellOption(value = {"--instant"}, help = "Rollback instant") String rollbackInstant,
-      @ShellOption(value = {"--limit"}, help = "Limit  #rows to be displayed", defaultValue = "10") Integer limit,
-      @ShellOption(value = {"--sortBy"}, help = "Sorting Field", defaultValue = "") final String sortByField,
-      @ShellOption(value = {"--desc"}, help = "Ordering", defaultValue = "false") final boolean descending,
-      @ShellOption(value = {"--headeronly"}, help = "Print Header Only",
-              defaultValue = "false") final boolean headerOnly)
+      @CliOption(key = {"instant"}, help = "Rollback instant", mandatory = true) String rollbackInstant,
+      @CliOption(key = {"limit"}, help = "Limit  #rows to be displayed", unspecifiedDefaultValue = "10") Integer limit,
+      @CliOption(key = {"sortBy"}, help = "Sorting Field", unspecifiedDefaultValue = "") final String sortByField,
+      @CliOption(key = {"desc"}, help = "Ordering", unspecifiedDefaultValue = "false") final boolean descending,
+      @CliOption(key = {"headeronly"}, help = "Print Header Only",
+          unspecifiedDefaultValue = "false") final boolean headerOnly)
       throws IOException {
     HoodieActiveTimeline activeTimeline = new RollbackTimeline(HoodieCLI.getTableMetaClient());
     final List<Comparable[]> rows = new ArrayList<>();
@@ -103,17 +102,17 @@ public class RollbacksCommand {
         activeTimeline.getInstantDetails(new HoodieInstant(State.COMPLETED, ROLLBACK_ACTION, rollbackInstant)).get(),
         HoodieRollbackMetadata.class);
     metadata.getPartitionMetadata().forEach((key, value) -> Stream
-        .concat(value.getSuccessDeleteFiles().stream().map(f -> Pair.of(f, true)),
-            value.getFailedDeleteFiles().stream().map(f -> Pair.of(f, false)))
-        .forEach(fileWithDeleteStatus -> {
-          Comparable[] row = new Comparable[5];
-          row[0] = metadata.getStartRollbackTime();
-          row[1] = metadata.getCommitsRollback().toString();
-          row[2] = key;
-          row[3] = fileWithDeleteStatus.getLeft();
-          row[4] = fileWithDeleteStatus.getRight();
-          rows.add(row);
-        }));
+            .concat(value.getSuccessDeleteFiles().stream().map(f -> Pair.of(f, true)),
+                    value.getFailedDeleteFiles().stream().map(f -> Pair.of(f, false)))
+            .forEach(fileWithDeleteStatus -> {
+              Comparable[] row = new Comparable[5];
+              row[0] = metadata.getStartRollbackTime();
+              row[1] = metadata.getCommitsRollback().toString();
+              row[2] = key;
+              row[3] = fileWithDeleteStatus.getLeft();
+              row[4] = fileWithDeleteStatus.getRight();
+              rows.add(row);
+            }));
 
     TableHeader header = new TableHeader().addTableHeaderField(HoodieTableHeaderFields.HEADER_INSTANT)
         .addTableHeaderField(HoodieTableHeaderFields.HEADER_ROLLBACK_INSTANT)
@@ -121,38 +120,6 @@ public class RollbacksCommand {
         .addTableHeaderField(HoodieTableHeaderFields.HEADER_DELETED_FILE)
         .addTableHeaderField(HoodieTableHeaderFields.HEADER_SUCCEEDED);
     return HoodiePrintHelper.print(header, new HashMap<>(), sortByField, descending, limit, headerOnly, rows);
-  }
-
-  @ShellMethod(key = "commit rollback", value = "Rollback a commit")
-  public String rollbackCommit(
-      @ShellOption(value = {"--commit"}, help = "Commit to rollback") final String instantTime,
-      @ShellOption(value = {"--sparkProperties"}, help = "Spark Properties File Path",
-          defaultValue = "") final String sparkPropertiesPath,
-      @ShellOption(value = "--sparkMaster", defaultValue = "", help = "Spark Master") String master,
-      @ShellOption(value = "--sparkMemory", defaultValue = "4G",
-          help = "Spark executor memory") final String sparkMemory,
-      @ShellOption(value = "--rollbackUsingMarkers", defaultValue = "false",
-          help = "Enabling marker based rollback") final String rollbackUsingMarkers)
-      throws Exception {
-    HoodieActiveTimeline activeTimeline = HoodieCLI.getTableMetaClient().getActiveTimeline();
-    HoodieTimeline completedTimeline = activeTimeline.getCommitsTimeline().filterCompletedInstants();
-    HoodieTimeline filteredTimeline = completedTimeline.filter(instant -> instant.getTimestamp().equals(instantTime));
-    if (filteredTimeline.empty()) {
-      return "Commit " + instantTime + " not found in Commits " + completedTimeline;
-    }
-
-    SparkLauncher sparkLauncher = SparkUtil.initLauncher(sparkPropertiesPath);
-    sparkLauncher.addAppArgs(SparkMain.SparkCommand.ROLLBACK.toString(), master, sparkMemory, instantTime,
-        HoodieCLI.getTableMetaClient().getBasePath(), rollbackUsingMarkers);
-    Process process = sparkLauncher.launch();
-    InputStreamConsumer.captureOutput(process);
-    int exitCode = process.waitFor();
-    // Refresh the current
-    HoodieCLI.refreshTableMetadata();
-    if (exitCode != 0) {
-      return "Commit " + instantTime + " failed to roll back";
-    }
-    return "Commit " + instantTime + " rolled back";
   }
 
   /**

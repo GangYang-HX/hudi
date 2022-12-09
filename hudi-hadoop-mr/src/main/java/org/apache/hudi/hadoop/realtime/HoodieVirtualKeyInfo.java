@@ -18,8 +18,6 @@
 
 package org.apache.hudi.hadoop.realtime;
 
-import org.apache.hudi.common.util.Option;
-
 import java.io.Serializable;
 
 /**
@@ -28,11 +26,11 @@ import java.io.Serializable;
 public class HoodieVirtualKeyInfo implements Serializable {
 
   private final String recordKeyField;
-  private final Option<String> partitionPathField;
+  private final String partitionPathField;
   private final int recordKeyFieldIndex;
-  private final Option<Integer> partitionPathFieldIndex;
+  private final int partitionPathFieldIndex;
 
-  public HoodieVirtualKeyInfo(String recordKeyField, Option<String> partitionPathField, int recordKeyFieldIndex, Option<Integer> partitionPathFieldIndex) {
+  public HoodieVirtualKeyInfo(String recordKeyField, String partitionPathField, int recordKeyFieldIndex, int partitionPathFieldIndex) {
     this.recordKeyField = recordKeyField;
     this.partitionPathField = partitionPathField;
     this.recordKeyFieldIndex = recordKeyFieldIndex;
@@ -43,7 +41,7 @@ public class HoodieVirtualKeyInfo implements Serializable {
     return recordKeyField;
   }
 
-  public Option<String> getPartitionPathField() {
+  public String getPartitionPathField() {
     return partitionPathField;
   }
 
@@ -51,7 +49,7 @@ public class HoodieVirtualKeyInfo implements Serializable {
     return recordKeyFieldIndex;
   }
 
-  public Option<Integer> getPartitionPathFieldIndex() {
+  public int getPartitionPathFieldIndex() {
     return partitionPathFieldIndex;
   }
 
@@ -59,9 +57,9 @@ public class HoodieVirtualKeyInfo implements Serializable {
   public String toString() {
     return "HoodieVirtualKeyInfo{"
         + "recordKeyField='" + recordKeyField + '\''
-        + ", partitionPathField='" + (partitionPathField.isPresent() ? partitionPathField.get() : "null") + '\''
+        + ", partitionPathField='" + partitionPathField + '\''
         + ", recordKeyFieldIndex=" + recordKeyFieldIndex
-        + ", partitionPathFieldIndex=" + (partitionPathFieldIndex.isPresent() ? partitionPathFieldIndex.get() : "-1")
+        + ", partitionPathFieldIndex=" + partitionPathFieldIndex
         + '}';
   }
 }

@@ -80,11 +80,10 @@ class OrcBootstrapMetadataHandler extends BaseBootstrapMetadataHandler {
     } catch (Exception e) {
       throw new HoodieException(e);
     } finally {
+      bootstrapHandle.close();
       if (null != wrapper) {
         wrapper.shutdownNow();
-        wrapper.awaitTermination();
       }
-      bootstrapHandle.close();
     }
   }
 }

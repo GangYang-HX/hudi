@@ -121,8 +121,8 @@ public final class RepairUtils {
       String instantToRepair, List<String> baseAndLogFilesFromFs,
       HoodieActiveTimeline activeTimeline, HoodieArchivedTimeline archivedTimeline) {
     // Skips the instant if it is requested or inflight in active timeline
-    if (!activeTimeline.filter(instant -> instant.getTimestamp().equals(instantToRepair)
-        && !instant.isCompleted()).empty()) {
+    if (activeTimeline.filter(instant -> instant.getTimestamp().equals(instantToRepair)
+        && !instant.isCompleted()).getInstants().findAny().isPresent()) {
       return Collections.emptyList();
     }
 

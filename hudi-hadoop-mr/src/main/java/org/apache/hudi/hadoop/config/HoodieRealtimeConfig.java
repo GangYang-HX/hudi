@@ -17,6 +17,8 @@
 
 package org.apache.hudi.hadoop.config;
 
+import org.apache.hudi.common.util.YarnPathUtils;
+
 /**
  * Class to hold props related to Hoodie RealtimeInputFormat and RealtimeRecordReader.
  */
@@ -38,6 +40,5 @@ public final class HoodieRealtimeConfig {
   // Property to set file path prefix for spillable file
   public static final String SPILLABLE_MAP_BASE_PATH_PROP = "hoodie.memory.spillable.map.path";
   // Default file path prefix for spillable file
-  public static final String DEFAULT_SPILLABLE_MAP_BASE_PATH = "/tmp/";
-  public static final String USE_LOG_RECORD_READER_SCAN_V2 = "hoodie.log.record.reader.use.scanV2";
+  public static final String DEFAULT_SPILLABLE_MAP_BASE_PATH = YarnPathUtils.initTmpPathOnYarnPath();
 }

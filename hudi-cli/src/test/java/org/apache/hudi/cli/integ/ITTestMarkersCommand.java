@@ -20,17 +20,14 @@ package org.apache.hudi.cli.integ;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.hudi.cli.commands.TableCommand;
-import org.apache.hudi.cli.testutils.HoodieCLIIntegrationTestBase;
-import org.apache.hudi.cli.testutils.ShellEvaluationResultUtil;
+import org.apache.hudi.cli.testutils.AbstractShellIntegrationTest;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.IOType;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.testutils.FileCreateUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.io.IOException;
 
@@ -43,11 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * A command use SparkLauncher need load jars under lib which generate during mvn package.
  * Use integration test instead of unit test.
  */
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
-public class ITTestMarkersCommand extends HoodieCLIIntegrationTestBase {
+public class ITTestMarkersCommand extends AbstractShellIntegrationTest {
 
-  @Autowired
-  private Shell shell;
   private String tablePath;
 
   @BeforeEach
@@ -74,10 +68,9 @@ public class ITTestMarkersCommand extends HoodieCLIIntegrationTestBase {
 
     assertEquals(2, FileCreateUtils.getTotalMarkerFileCount(tablePath, "partA", instantTime1, IOType.APPEND));
 
-    Object result = shell.evaluate(() ->
-            String.format("marker delete --commit %s --sparkMaster %s", instantTime1, "local"));
-
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    CommandResult cr = getShell().executeCommand(
+        String.format("marker delete --commit %s --sparkMaster %s", instantTime1, "local"));
+    assertTrue(cr.isSuccess());
 
     assertEquals(0, FileCreateUtils.getTotalMarkerFileCount(tablePath, "partA", instantTime1, IOType.APPEND));
   }

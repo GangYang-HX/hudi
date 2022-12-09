@@ -23,6 +23,7 @@ import org.apache.hudi.common.fs.StorageSchemes;
 import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.table.log.HoodieLogFormat.WriterBuilder;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
+import org.apache.hudi.common.util.TraceUtils;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 
@@ -117,14 +118,17 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
           }
         }
         if (!isAppendSupported) {
+          final String logFileBeforeRoll = logFile.getPath().toString();
           rollOver();
           createNewFile();
           LOG.info("Append not supported.. Rolling over to " + logFile);
+          LOG.info(TraceUtils.getDataLogFileRolloverTrace(logFileBeforeRoll, logFile.getPath().toString()));
         }
       } else {
         LOG.info(logFile + " does not exist. Create a new file");
         // Block size does not matter as we will always manually autoflush
         createNewFile();
+        LOG.info(TraceUtils.getDataLogFileCreateTrace(logFile.getPath().toString()));
       }
     }
     return output;
@@ -219,7 +223,14 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
     if (getCurrentSize() > sizeThreshold) {
       LOG.info("CurrentSize " + getCurrentSize() + " has reached threshold " + sizeThreshold
           + ". Rolling over to the next version");
+      final String logFileBeforeRoll = logFile.getPath().toString();
       rollOver();
+      LOG.info(
+              TraceUtils.getDataLogFileTraceString(
+                      logFileBeforeRoll,
+                      TraceUtils.FileState.ROLL_OVER,
+                      logFile.getPath().toString(),
+                      TraceUtils.FileState.UNEXIST));
     }
   }
 
@@ -304,13 +315,17 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
       // appended to, then the NN will throw an exception saying that it couldn't find any active replica with the
       // last block. Find more information here : https://issues.apache.org/jira/browse/HDFS-6325
       LOG.warn("Failed to open an append stream to the log file. Opening a new log file..", e);
+      final String logFileBeforeRoll = logFile.getPath().toString();
       rollOver();
       createNewFile();
+      LOG.info(TraceUtils.getDataLogFileRolloverTrace(logFileBeforeRoll, logFile.getPath().toString()));
     } else if (e.getClassName().contentEquals(AlreadyBeingCreatedException.class.getName())) {
       LOG.warn("Another task executor writing to the same log file(" + logFile + ". Rolling over");
       // Rollover the current log file (since cannot get a stream handle) and create new one
+      final String logFileBeforeRoll = logFile.getPath().toString();
       rollOver();
       createNewFile();
+      LOG.info(TraceUtils.getDataLogFileRolloverTrace(logFileBeforeRoll, logFile.getPath().toString()));
     } else if (e.getClassName().contentEquals(RecoveryInProgressException.class.getName())
         && (fs instanceof DistributedFileSystem)) {
       // this happens when either another task executor writing to this file died or
@@ -341,8 +356,10 @@ public class HoodieLogFormatWriter implements HoodieLogFormat.Writer {
       } catch (Exception ce) {
         LOG.warn("Failed to close the output stream for " + fs.getClass().getName() + " on path " + path
             + ". Rolling over to a new log file.");
+        final String logFileBeforeRoll = logFile.getPath().toString();
         rollOver();
         createNewFile();
+        LOG.info(TraceUtils.getDataLogFileRolloverTrace(logFileBeforeRoll, logFile.getPath().toString()));
       }
     }
   }

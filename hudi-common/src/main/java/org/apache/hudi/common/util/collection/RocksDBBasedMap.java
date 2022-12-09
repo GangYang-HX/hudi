@@ -29,12 +29,12 @@ import java.util.Set;
 /**
  * A map's implementation based on RocksDB.
  */
-public final class RocksDBBasedMap<K extends Serializable, R extends Serializable> implements Map<K, R>, Serializable {
+public final class RocksDBBasedMap<K extends Serializable, R extends Serializable> implements Map<K, R> {
 
   private static final String COL_FAMILY_NAME = "map_handle";
 
   private final String rocksDbStoragePath;
-  private transient RocksDBDAO rocksDBDAO;
+  private RocksDBDAO rocksDBDAO;
   private final String columnFamilyName;
 
   public RocksDBBasedMap(String rocksDbStoragePath) {

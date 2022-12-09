@@ -30,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.io.Closeable;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -85,6 +86,11 @@ public class TestMetricsReporterFactory {
 
     @Override
     public void report() {}
+
+    @Override
+    public Closeable getReporter() {
+      return null;
+    }
 
     @Override
     public void stop() {}

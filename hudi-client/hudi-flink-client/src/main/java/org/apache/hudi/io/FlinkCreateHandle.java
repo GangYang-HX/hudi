@@ -24,6 +24,7 @@ import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.TraceUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.table.HoodieTable;
@@ -88,13 +89,14 @@ public class FlinkCreateHandle<T extends HoodieRecordPayload, I, K, O>
    */
   private void deleteInvalidDataFile(long lastAttemptId) {
     final String lastWriteToken = FSUtils.makeWriteToken(getPartitionId(), getStageId(), lastAttemptId);
-    final String lastDataFileName = FSUtils.makeBaseFileName(instantTime,
+    final String lastDataFileName = FSUtils.makeDataFileName(instantTime,
         lastWriteToken, this.fileId, hoodieTable.getBaseFileExtension());
     final Path path = makeNewFilePath(partitionPath, lastDataFileName);
     try {
       if (fs.exists(path)) {
         LOG.info("Deleting invalid INSERT file due to task retry: " + lastDataFileName);
         fs.delete(path, false);
+        LOG.info(TraceUtils.getDataBaseFileDeleteTrace(path.toString()));
       }
     } catch (IOException e) {
       throw new HoodieException("Error while deleting the INSERT file due to task retry: " + lastDataFileName, e);
@@ -120,6 +122,7 @@ public class FlinkCreateHandle<T extends HoodieRecordPayload, I, K, O>
         Path existing = path;
         path = newFilePathWithRollover(rollNumber++);
         LOG.warn("Duplicate write for INSERT bucket with path: " + existing + ", rolls over to new path: " + path);
+        LOG.info(TraceUtils.getDataBaseFileRolloverTrace(existing.toString(), path.toString()));
       }
       return path;
     } catch (IOException e) {
@@ -136,7 +139,7 @@ public class FlinkCreateHandle<T extends HoodieRecordPayload, I, K, O>
    * Use the writeToken + "-" + rollNumber as the new writeToken of a mini-batch write.
    */
   private Path newFilePathWithRollover(int rollNumber) {
-    final String dataFileName = FSUtils.makeBaseFileName(instantTime, writeToken + "-" + rollNumber, fileId,
+    final String dataFileName = FSUtils.makeDataFileName(instantTime, writeToken + "-" + rollNumber, fileId,
         hoodieTable.getBaseFileExtension());
     return makeNewFilePath(partitionPath, dataFileName);
   }
@@ -162,6 +165,7 @@ public class FlinkCreateHandle<T extends HoodieRecordPayload, I, K, O>
       try {
         fs.delete(path, false);
         LOG.info("Deleting the intermediate CREATE data file: " + path + " success!");
+        LOG.info(TraceUtils.getDataBaseFileDeleteTrace(path.toString()));
       } catch (IOException e) {
         // logging a warning and ignore the exception.
         LOG.warn("Deleting the intermediate CREATE data file: " + path + " failed", e);

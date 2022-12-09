@@ -18,12 +18,6 @@
 
 package org.apache.hudi.cli.commands;
 
-import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.generic.IndexedRecord;
-import org.apache.avro.specific.SpecificData;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.HoodieArchivedMetaEntry;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
@@ -42,9 +36,18 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.ClosableIterator;
 import org.apache.hudi.exception.HoodieException;
-import org.springframework.shell.standard.ShellComponent;
-import org.springframework.shell.standard.ShellMethod;
-import org.springframework.shell.standard.ShellOption;
+
+import org.apache.avro.generic.GenericRecord;
+import org.apache.avro.generic.IndexedRecord;
+import org.apache.avro.specific.SpecificData;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.Path;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+import org.springframework.shell.core.CommandMarker;
+import org.springframework.shell.core.annotation.CliCommand;
+import org.springframework.shell.core.annotation.CliOption;
+import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -57,21 +60,21 @@ import java.util.stream.Collectors;
 
 /**
  * CLI commands to export various information from a HUDI dataset.
- * <p>
+ *
  * "export instants": Export Instants and their metadata from the Timeline to a local
- * directory specified by the parameter --localFolder
- * The instants are exported in the json format.
+ *                    directory specified by the parameter --localFolder
+ *      The instants are exported in the json format.
  */
-@ShellComponent
-public class ExportCommand {
+@Component
+public class ExportCommand implements CommandMarker {
 
-  @ShellMethod(key = "export instants", value = "Export Instants and their metadata from the Timeline")
+  @CliCommand(value = "export instants", help = "Export Instants and their metadata from the Timeline")
   public String exportInstants(
-      @ShellOption(value = {"--limit"}, help = "Limit Instants", defaultValue = "-1") final Integer limit,
-      @ShellOption(value = {"--actions"}, help = "Comma separated list of Instant actions to export",
-              defaultValue = "clean,commit,deltacommit,rollback,savepoint,restore") final String filter,
-      @ShellOption(value = {"--desc"}, help = "Ordering", defaultValue = "false") final boolean descending,
-      @ShellOption(value = {"--localFolder"}, help = "Local Folder to export to") String localFolder)
+      @CliOption(key = {"limit"}, help = "Limit Instants", unspecifiedDefaultValue = "-1") final Integer limit,
+      @CliOption(key = {"actions"}, help = "Comma separated list of Instant actions to export",
+          unspecifiedDefaultValue = "clean,commit,deltacommit,rollback,savepoint,restore") final String filter,
+      @CliOption(key = {"desc"}, help = "Ordering", unspecifiedDefaultValue = "false") final boolean descending,
+      @CliOption(key = {"localFolder"}, help = "Local Folder to export to", mandatory = true) String localFolder)
       throws Exception {
 
     final String basePath = HoodieCLI.getTableMetaClient().getBasePath();
@@ -80,18 +83,18 @@ public class ExportCommand {
     int numExports = limit == -1 ? Integer.MAX_VALUE : limit;
     int numCopied = 0;
 
-    if (!new File(localFolder).isDirectory()) {
+    if (! new File(localFolder).isDirectory()) {
       throw new HoodieException(localFolder + " is not a valid local directory");
     }
 
     // The non archived instants can be listed from the Timeline.
     HoodieTimeline timeline = HoodieCLI.getTableMetaClient().getActiveTimeline().filterCompletedInstants()
         .filter(i -> actionSet.contains(i.getAction()));
-    List<HoodieInstant> nonArchivedInstants = timeline.getInstants();
+    List<HoodieInstant> nonArchivedInstants = timeline.getInstants().collect(Collectors.toList());
 
     // Archived instants are in the commit archive files
     FileStatus[] statuses = FSUtils.getFs(basePath, HoodieCLI.conf).globStatus(archivePath);
-    List<FileStatus> archivedStatuses = Arrays.stream(statuses).sorted((f1, f2) -> (int) (f1.getModificationTime() - f2.getModificationTime())).collect(Collectors.toList());
+    List<FileStatus> archivedStatuses = Arrays.stream(statuses).sorted((f1, f2) -> (int)(f1.getModificationTime() - f2.getModificationTime())).collect(Collectors.toList());
 
     if (descending) {
       Collections.reverse(nonArchivedInstants);
@@ -112,11 +115,11 @@ public class ExportCommand {
 
   private int copyArchivedInstants(List<FileStatus> statuses, Set<String> actionSet, int limit, String localFolder) throws Exception {
     int copyCount = 0;
-    FileSystem fileSystem = FSUtils.getFs(HoodieCLI.getTableMetaClient().getBasePath(), HoodieCLI.conf);
 
     for (FileStatus fs : statuses) {
       // read the archived file
-      Reader reader = HoodieLogFormat.newReader(fileSystem, new HoodieLogFile(fs.getPath()), HoodieArchivedMetaEntry.getClassSchema());
+      Reader reader = HoodieLogFormat.newReader(FSUtils.getFs(HoodieCLI.getTableMetaClient().getBasePath(), HoodieCLI.conf),
+          new HoodieLogFile(fs.getPath()), HoodieArchivedMetaEntry.getClassSchema());
 
       // read the avro blocks
       while (reader.hasNext() && copyCount < limit) {
@@ -127,7 +130,7 @@ public class ExportCommand {
             // Archived instants are saved as arvo encoded HoodieArchivedMetaEntry records. We need to get the
             // metadata record from the entry and convert it to json.
             HoodieArchivedMetaEntry archiveEntryRecord = (HoodieArchivedMetaEntry) SpecificData.get()
-                .deepCopy(HoodieArchivedMetaEntry.SCHEMA$, ir);
+                    .deepCopy(HoodieArchivedMetaEntry.SCHEMA$, ir);
             final String action = archiveEntryRecord.get("actionType").toString();
             if (!actionSet.contains(action)) {
               continue;
@@ -154,7 +157,7 @@ public class ExportCommand {
               default:
                 throw new HoodieException("Unknown type of action " + action);
             }
-
+            
             final String instantTime = archiveEntryRecord.get("commitTime").toString();
             final String outPath = localFolder + Path.SEPARATOR + instantTime + "." + action;
             writeToFile(outPath, HoodieAvroUtils.avroToJson(metadata, true));
@@ -175,8 +178,9 @@ public class ExportCommand {
     int copyCount = 0;
 
     if (instants.isEmpty()) {
-      return copyCount;
+      return limit;
     }
+    final Logger LOG = LogManager.getLogger(ExportCommand.class);
 
     final HoodieTableMetaClient metaClient = HoodieCLI.getTableMetaClient();
     final HoodieActiveTimeline timeline = metaClient.getActiveTimeline();
@@ -217,7 +221,6 @@ public class ExportCommand {
 
       if (data != null) {
         writeToFile(localPath, data);
-        copyCount = copyCount + 1;
       }
     }
 

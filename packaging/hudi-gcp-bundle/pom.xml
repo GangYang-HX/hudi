@@ -22,7 +22,7 @@
   <parent>
     <artifactId>hudi</artifactId>
     <groupId>org.apache.hudi</groupId>
-    <version>0.13.0-SNAPSHOT</version>
+    <version>0.11.0.1-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
@@ -32,7 +32,6 @@
   <properties>
     <checkstyle.skip>true</checkstyle.skip>
     <main.basedir>${project.parent.basedir}</main.basedir>
-    <skipTests>true</skipTests>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -91,12 +90,11 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
               </transformers>
               <artifactSet>
-                <includes combine.children="append">
+                <includes>
                   <include>org.apache.hudi:hudi-common</include>
                   <include>org.apache.hudi:hudi-hadoop-mr</include>
                   <include>org.apache.hudi:hudi-sync-common</include>
                   <include>org.apache.hudi:hudi-gcp</include>
-                  <include>org.apache.parquet:parquet-avro</include>
 
                   <include>com.google.cloud:google-cloud-bigquery</include>
                   <include>com.beust:jcommander</include>
@@ -107,17 +105,23 @@
                   <include>org.apache.hbase:hbase-hadoop2-compat</include>
                   <include>org.apache.hbase:hbase-metrics</include>
                   <include>org.apache.hbase:hbase-metrics-api</include>
-                  <include>org.apache.hbase:hbase-protocol</include>
                   <include>org.apache.hbase:hbase-protocol-shaded</include>
                   <include>org.apache.hbase:hbase-server</include>
                   <include>org.apache.hbase.thirdparty:hbase-shaded-miscellaneous</include>
                   <include>org.apache.hbase.thirdparty:hbase-shaded-netty</include>
                   <include>org.apache.hbase.thirdparty:hbase-shaded-protobuf</include>
                   <include>org.apache.htrace:htrace-core4</include>
-                  <include>org.openjdk.jol:jol-core</include>
                 </includes>
               </artifactSet>
-              <relocations combine.children="append">
+              <relocations>
+                <relocation>
+                  <pattern>com.esotericsoftware.kryo.</pattern>
+                  <shadedPattern>org.apache.hudi.com.esotericsoftware.kryo.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.esotericsoftware.minlog.</pattern>
+                  <shadedPattern>org.apache.hudi.com.esotericsoftware.minlog.</shadedPattern>
+                </relocation>
                 <relocation>
                   <pattern>org.apache.commons.io.</pattern>
                   <shadedPattern>org.apache.hudi.org.apache.commons.io.</shadedPattern>
@@ -138,8 +142,8 @@
                   <shadedPattern>org.apache.hudi.org.apache.htrace.</shadedPattern>
                 </relocation>
                 <relocation>
-                  <pattern>org.openjdk.jol.</pattern>
-                  <shadedPattern>org.apache.hudi.org.openjdk.jol.</shadedPattern>
+                  <pattern>org.objenesis.</pattern>
+                  <shadedPattern>org.apache.hudi.org.objenesis.</shadedPattern>
                 </relocation>
                 <!-- The classes below in org.apache.hadoop.metrics2 package come from
                 hbase-hadoop-compat and hbase-hadoop2-compat, which have to be shaded one by one,

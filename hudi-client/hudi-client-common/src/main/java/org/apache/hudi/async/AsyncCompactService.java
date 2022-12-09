@@ -22,7 +22,6 @@ import org.apache.hudi.client.BaseHoodieWriteClient;
 import org.apache.hudi.common.engine.EngineProperty;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
-import org.apache.hudi.common.util.CustomizedThreadFactory;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieIOException;
 
@@ -40,15 +39,17 @@ import java.util.stream.IntStream;
  */
 public abstract class AsyncCompactService extends HoodieAsyncTableService {
 
+  private static final long serialVersionUID = 1L;
+  private static final Logger LOG = LogManager.getLogger(AsyncCompactService.class);
+
   /**
    * This is the job pool used by async compaction.
    */
   public static final String COMPACT_POOL_NAME = "hoodiecompact";
-  private static final long serialVersionUID = 1L;
-  private static final Logger LOG = LogManager.getLogger(AsyncCompactService.class);
+
   private final int maxConcurrentCompaction;
-  protected transient HoodieEngineContext context;
   private transient BaseCompactor compactor;
+  protected transient HoodieEngineContext context;
 
   public AsyncCompactService(HoodieEngineContext context, BaseHoodieWriteClient client) {
     this(context, client, false);
@@ -69,7 +70,11 @@ public abstract class AsyncCompactService extends HoodieAsyncTableService {
   @Override
   protected Pair<CompletableFuture, ExecutorService> startService() {
     ExecutorService executor = Executors.newFixedThreadPool(maxConcurrentCompaction,
-        new CustomizedThreadFactory("async_compact_thread", isRunInDaemonMode()));
+        r -> {
+        Thread t = new Thread(r, "async_compact_thread");
+        t.setDaemon(isRunInDaemonMode());
+        return t;
+      });
     return Pair.of(CompletableFuture.allOf(IntStream.range(0, maxConcurrentCompaction).mapToObj(i -> CompletableFuture.supplyAsync(() -> {
       try {
         // Set Compactor Pool Name for allowing users to prioritize compaction
@@ -102,9 +107,9 @@ public abstract class AsyncCompactService extends HoodieAsyncTableService {
     }, executor)).toArray(CompletableFuture[]::new)), executor);
   }
 
+
   /**
    * Check whether compactor thread needs to be stopped.
-   *
    * @return
    */
   protected boolean shouldStopCompactor() {

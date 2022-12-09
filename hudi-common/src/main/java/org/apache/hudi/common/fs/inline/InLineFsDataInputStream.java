@@ -33,11 +33,11 @@ import java.util.EnumSet;
  */
 public class InLineFsDataInputStream extends FSDataInputStream {
 
-  private final long startOffset;
+  private final int startOffset;
   private final FSDataInputStream outerStream;
-  private final long length;
+  private final int length;
 
-  public InLineFsDataInputStream(long startOffset, FSDataInputStream outerStream, long length) throws IOException {
+  public InLineFsDataInputStream(int startOffset, FSDataInputStream outerStream, int length) throws IOException {
     super(outerStream.getWrappedStream());
     this.startOffset = startOffset;
     this.outerStream = outerStream;

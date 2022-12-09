@@ -27,8 +27,6 @@ import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.config.HoodieWriteConfig;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.metadata.MetadataPartitionType;
 
@@ -54,6 +52,7 @@ import static org.apache.hudi.common.util.StringUtils.isNullOrEmpty;
 import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_BLOOM_FILTERS;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.PARTITION_NAME_COLUMN_STATS;
+import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getCompletedMetadataPartitions;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getInflightAndCompletedMetadataPartitions;
 import static org.apache.hudi.utilities.UtilHelpers.EXECUTE;
 import static org.apache.hudi.utilities.UtilHelpers.SCHEDULE;
@@ -227,12 +226,8 @@ public class HoodieIndexer {
   }
 
   private Option<String> doSchedule(SparkRDDWriteClient<HoodieRecordPayload> client) {
-    HoodieMetadataConfig metadataConfig = getHoodieMetadataConfig();
-    List<MetadataPartitionType> partitionTypes = getRequestedPartitionTypes(cfg.indexTypes, Option.of(metadataConfig));
+    List<MetadataPartitionType> partitionTypes = getRequestedPartitionTypes(cfg.indexTypes);
     checkArgument(partitionTypes.size() == 1, "Currently, only one index type can be scheduled at a time.");
-    if (!isMetadataInitialized() && !partitionTypes.contains(MetadataPartitionType.FILES)) {
-      throw new HoodieException("Metadata table is not yet initialized. Initialize FILES partition before any other partition " + Arrays.toString(partitionTypes.toArray()));
-    }
     if (indexExists(partitionTypes)) {
       return Option.empty();
     }
@@ -243,14 +238,8 @@ public class HoodieIndexer {
     return indexingInstant;
   }
 
-  private HoodieMetadataConfig getHoodieMetadataConfig() {
-    props.setProperty(HoodieWriteConfig.BASE_PATH.key(), cfg.basePath);
-    HoodieWriteConfig dataTableWriteConfig = HoodieWriteConfig.newBuilder().withProps(props).build();
-    return dataTableWriteConfig.getMetadataConfig();
-  }
-
   private boolean indexExists(List<MetadataPartitionType> partitionTypes) {
-    Set<String> indexedMetadataPartitions = metaClient.getTableConfig().getMetadataPartitions();
+    Set<String> indexedMetadataPartitions = getCompletedMetadataPartitions(metaClient.getTableConfig());
     Set<String> requestedIndexPartitionPaths = partitionTypes.stream().map(MetadataPartitionType::getPartitionPath).collect(Collectors.toSet());
     requestedIndexPartitionPaths.retainAll(indexedMetadataPartitions);
     if (!requestedIndexPartitionPaths.isEmpty()) {
@@ -258,11 +247,6 @@ public class HoodieIndexer {
       return true;
     }
     return false;
-  }
-
-  private boolean isMetadataInitialized() {
-    Set<String> indexedMetadataPartitions = metaClient.getTableConfig().getMetadataPartitions();
-    return !indexedMetadataPartitions.isEmpty();
   }
 
   private int runIndexing(JavaSparkContext jsc) throws Exception {
@@ -299,7 +283,7 @@ public class HoodieIndexer {
   }
 
   private int dropIndex(JavaSparkContext jsc) throws Exception {
-    List<MetadataPartitionType> partitionTypes = getRequestedPartitionTypes(cfg.indexTypes, Option.empty());
+    List<MetadataPartitionType> partitionTypes = getRequestedPartitionTypes(cfg.indexTypes);
     String schemaStr = UtilHelpers.getSchemaFromLatestInstant(metaClient);
     try (SparkRDDWriteClient<HoodieRecordPayload> client = UtilHelpers.createHoodieClient(jsc, cfg.basePath, schemaStr, cfg.parallelism, Option.empty(), props)) {
       client.dropIndex(partitionTypes);
@@ -324,27 +308,18 @@ public class HoodieIndexer {
   boolean isIndexBuiltForAllRequestedTypes(List<HoodieIndexPartitionInfo> indexPartitionInfos) {
     Set<String> indexedPartitions = indexPartitionInfos.stream()
         .map(HoodieIndexPartitionInfo::getMetadataPartitionPath).collect(Collectors.toSet());
-    Set<String> requestedPartitions = getRequestedPartitionTypes(cfg.indexTypes, Option.empty()).stream()
+    Set<String> requestedPartitions = getRequestedPartitionTypes(cfg.indexTypes).stream()
         .map(MetadataPartitionType::getPartitionPath).collect(Collectors.toSet());
     requestedPartitions.removeAll(indexedPartitions);
     return requestedPartitions.isEmpty();
   }
 
-  List<MetadataPartitionType> getRequestedPartitionTypes(String indexTypes, Option<HoodieMetadataConfig> metadataConfig) {
+  List<MetadataPartitionType> getRequestedPartitionTypes(String indexTypes) {
     List<String> requestedIndexTypes = Arrays.asList(indexTypes.split(","));
     return requestedIndexTypes.stream()
-        .map(p -> {
-          MetadataPartitionType metadataPartitionType = MetadataPartitionType.valueOf(p.toUpperCase(Locale.ROOT));
-          if (metadataConfig.isPresent()) { // this is expected to be non-null during scheduling where file groups for a given partition are instantiated for the first time.
-            if (!metadataPartitionType.getPartitionPath().equals(MetadataPartitionType.FILES.toString())) {
-              if (metadataPartitionType.getPartitionPath().equals(MetadataPartitionType.COLUMN_STATS.getPartitionPath())) {
-                metadataPartitionType.setFileGroupCount(metadataConfig.get().getColumnStatsIndexFileGroupCount());
-              } else if (metadataPartitionType.getPartitionPath().equals(MetadataPartitionType.BLOOM_FILTERS.getPartitionPath())) {
-                metadataPartitionType.setFileGroupCount(metadataConfig.get().getBloomFilterIndexFileGroupCount());
-              }
-            }
-          }
-          return metadataPartitionType;
-        }).collect(Collectors.toList());
+        .map(p -> MetadataPartitionType.valueOf(p.toUpperCase(Locale.ROOT)))
+        // FILES partition is initialized synchronously while getting metadata writer
+        .filter(p -> !MetadataPartitionType.FILES.equals(p))
+        .collect(Collectors.toList());
   }
 }

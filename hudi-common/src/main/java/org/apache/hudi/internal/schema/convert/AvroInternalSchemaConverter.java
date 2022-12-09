@@ -18,16 +18,14 @@
 
 package org.apache.hudi.internal.schema.convert;
 
-import org.apache.hudi.common.util.Option;
-import org.apache.hudi.internal.schema.HoodieSchemaException;
-import org.apache.hudi.internal.schema.InternalSchema;
-import org.apache.hudi.internal.schema.Type;
-import org.apache.hudi.internal.schema.Types;
-
 import org.apache.avro.JsonProperties;
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
+import org.apache.hudi.internal.schema.HoodieSchemaException;
+import org.apache.hudi.internal.schema.InternalSchema;
+import org.apache.hudi.internal.schema.Type;
+import org.apache.hudi.internal.schema.Types;
 
 import java.util.ArrayList;
 import java.util.Deque;
@@ -45,27 +43,15 @@ import static org.apache.avro.Schema.Type.UNION;
  */
 public class AvroInternalSchemaConverter {
 
-  // NOTE: We're using dot as field's name delimiter for nested fields
-  //       so that Avro is able to interpret qualified name as rather
-  //       the combination of the Avro's namespace and actual record's name.
-  //       For example qualified nested field's name "trip.fare.amount",
-  //       Avro will produce a record with
-  //          - Namespace: "trip.fare"
-  //          - Name: "amount"
-  //
-  //        This is crucial aspect of maintaining compatibility b/w schemas, after
-  //        converting Avro [[Schema]]s to [[InternalSchema]]s and back
-  private static final String AVRO_NAME_DELIMITER = ".";
-
   /**
    * Convert internalSchema to avro Schema.
    *
    * @param internalSchema internal schema.
-   * @param name the record name.
+   * @param tableName the record name.
    * @return an avro Schema.
    */
-  public static Schema convert(InternalSchema internalSchema, String name) {
-    return buildAvroSchemaFromInternalSchema(internalSchema, name);
+  public static Schema convert(InternalSchema internalSchema, String tableName) {
+    return buildAvroSchemaFromInternalSchema(internalSchema, tableName);
   }
 
   /**
@@ -97,7 +83,8 @@ public class AvroInternalSchemaConverter {
 
   /** Convert an avro schema into internalSchema. */
   public static InternalSchema convert(Schema schema) {
-    return new InternalSchema((Types.RecordType) convertToField(schema));
+    List<Types.Field> fields = ((Types.RecordType) convertToField(schema)).fields();
+    return new InternalSchema(fields);
   }
 
   /** Check whether current avro schema is optional?. */
@@ -170,11 +157,7 @@ public class AvroInternalSchemaConverter {
           internalFields.add(Types.Field.get(nextAssignId, AvroInternalSchemaConverter.isOptional(field.schema()), field.name(), fieldType, field.doc()));
           nextAssignId += 1;
         }
-        // NOTE: We're keeping a tab of full-name here to make sure we stay
-        //       compatible across various Spark (>= 2.4) and Avro (>= 1.8.2) versions;
-        //       Avro will be properly handling fully-qualified names on its own (splitting
-        //       them up into namespace/struct-name pair)
-        return Types.RecordType.get(internalFields, schema.getFullName());
+        return Types.RecordType.get(internalFields);
       case UNION:
         List<Type> fTypes = new ArrayList<>();
         schema.getTypes().stream().forEach(t -> {
@@ -278,8 +261,7 @@ public class AvroInternalSchemaConverter {
    *
    * @param type a hudi type.
    * @param cache use to cache intermediate convert result to save cost.
-   * @param recordName auto-generated record name used as a fallback, in case
-   * {@link org.apache.hudi.internal.schema.Types.RecordType} doesn't bear original record-name
+   * @param recordName the record name
    * @return a Avro schema match this type
    */
   private static Schema visitInternalSchemaToBuildAvroSchema(Type type, Map<Type, Schema> cache, String recordName) {
@@ -288,8 +270,7 @@ public class AvroInternalSchemaConverter {
         Types.RecordType record = (Types.RecordType) type;
         List<Schema> schemas = new ArrayList<>();
         record.fields().forEach(f -> {
-          String nestedRecordName = recordName + AVRO_NAME_DELIMITER + f.name();
-          Schema tempSchema = visitInternalSchemaToBuildAvroSchema(f.type(), cache, nestedRecordName);
+          Schema tempSchema = visitInternalSchemaToBuildAvroSchema(f.type(), cache, recordName + "_" + f.name());
           // convert tempSchema
           Schema result = f.isOptional() ? AvroInternalSchemaConverter.nullableSchema(tempSchema) : tempSchema;
           schemas.add(result);
@@ -330,7 +311,7 @@ public class AvroInternalSchemaConverter {
         cache.put(map, mapSchema);
         return mapSchema;
       default:
-        Schema primitiveSchema = visitInternalPrimitiveToBuildAvroPrimitiveType((Type.PrimitiveType) type, recordName);
+        Schema primitiveSchema = visitInternalPrimitiveToBuildAvroPrimitiveType((Type.PrimitiveType) type);
         cache.put(type, primitiveSchema);
         return primitiveSchema;
     }
@@ -340,15 +321,14 @@ public class AvroInternalSchemaConverter {
    * Converts hudi RecordType to Avro RecordType.
    * this is auxiliary function used by visitInternalSchemaToBuildAvroSchema
    */
-  private static Schema visitInternalRecordToBuildAvroRecord(Types.RecordType recordType, List<Schema> fieldSchemas, String recordNameFallback) {
-    List<Types.Field> fields = recordType.fields();
+  private static Schema visitInternalRecordToBuildAvroRecord(Types.RecordType record, List<Schema> fieldSchemas, String recordName) {
+    List<Types.Field> fields = record.fields();
     List<Schema.Field> avroFields = new ArrayList<>();
     for (int i = 0; i < fields.size(); i++) {
       Types.Field f = fields.get(i);
       Schema.Field field = new Schema.Field(f.name(), fieldSchemas.get(i), f.doc(), f.isOptional() ? JsonProperties.NULL_VALUE : null);
       avroFields.add(field);
     }
-    String recordName = Option.ofNullable(recordType.name()).orElse(recordNameFallback);
     return Schema.createRecord(recordName, null, null, false, avroFields);
   }
 
@@ -384,69 +364,62 @@ public class AvroInternalSchemaConverter {
    * Converts hudi PrimitiveType to Avro PrimitiveType.
    * this is auxiliary function used by visitInternalSchemaToBuildAvroSchema
    */
-  private static Schema visitInternalPrimitiveToBuildAvroPrimitiveType(Type.PrimitiveType primitive, String recordName) {
+  private static Schema visitInternalPrimitiveToBuildAvroPrimitiveType(Type.PrimitiveType primitive) {
+    Schema primitiveSchema;
     switch (primitive.typeId()) {
       case BOOLEAN:
-        return Schema.create(Schema.Type.BOOLEAN);
-
+        primitiveSchema = Schema.create(Schema.Type.BOOLEAN);
+        break;
       case INT:
-        return Schema.create(Schema.Type.INT);
-
+        primitiveSchema = Schema.create(Schema.Type.INT);
+        break;
       case LONG:
-        return Schema.create(Schema.Type.LONG);
-
+        primitiveSchema = Schema.create(Schema.Type.LONG);
+        break;
       case FLOAT:
-        return Schema.create(Schema.Type.FLOAT);
-
+        primitiveSchema = Schema.create(Schema.Type.FLOAT);
+        break;
       case DOUBLE:
-        return Schema.create(Schema.Type.DOUBLE);
-
+        primitiveSchema = Schema.create(Schema.Type.DOUBLE);
+        break;
       case DATE:
-        return LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT));
-
+        primitiveSchema = LogicalTypes.date()
+                .addToSchema(Schema.create(Schema.Type.INT));
+        break;
       case TIME:
-        return LogicalTypes.timeMicros().addToSchema(Schema.create(Schema.Type.LONG));
-
+        primitiveSchema = LogicalTypes.timeMicros()
+                .addToSchema(Schema.create(Schema.Type.LONG));
+        break;
       case TIMESTAMP:
-        return LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG));
-
+        primitiveSchema = LogicalTypes.timestampMicros()
+                .addToSchema(Schema.create(Schema.Type.LONG));
+        break;
       case STRING:
-        return Schema.create(Schema.Type.STRING);
-
-      case BINARY:
-        return Schema.create(Schema.Type.BYTES);
-
-      case UUID: {
-        // NOTE: All schemas corresponding to Avro's type [[FIXED]] are generated
-        //       with the "fixed" name to stay compatible w/ [[SchemaConverters]]
-        String name = recordName + AVRO_NAME_DELIMITER + "fixed";
-        Schema fixedSchema = Schema.createFixed(name, null, null, 16);
-        return LogicalTypes.uuid().addToSchema(fixedSchema);
-      }
-
-      case FIXED: {
+        primitiveSchema = Schema.create(Schema.Type.STRING);
+        break;
+      case UUID:
+        primitiveSchema = LogicalTypes.uuid()
+                .addToSchema(Schema.createFixed("uuid_fixed", null, null, 16));
+        break;
+      case FIXED:
         Types.FixedType fixed = (Types.FixedType) primitive;
-        // NOTE: All schemas corresponding to Avro's type [[FIXED]] are generated
-        //       with the "fixed" name to stay compatible w/ [[SchemaConverters]]
-        String name = recordName + AVRO_NAME_DELIMITER + "fixed";
-        return Schema.createFixed(name, null, null, fixed.getFixedSize());
-      }
-
-      case DECIMAL: {
+        primitiveSchema = Schema.createFixed("fixed_" + fixed.getFixedSize(), null, null, fixed.getFixedSize());
+        break;
+      case BINARY:
+        primitiveSchema = Schema.create(Schema.Type.BYTES);
+        break;
+      case DECIMAL:
         Types.DecimalType decimal = (Types.DecimalType) primitive;
-        // NOTE: All schemas corresponding to Avro's type [[FIXED]] are generated
-        //       with the "fixed" name to stay compatible w/ [[SchemaConverters]]
-        String name = recordName + AVRO_NAME_DELIMITER + "fixed";
-        Schema fixedSchema = Schema.createFixed(name,
-            null, null, computeMinBytesForPrecision(decimal.precision()));
-        return LogicalTypes.decimal(decimal.precision(), decimal.scale())
-            .addToSchema(fixedSchema);
-      }
-      
+        primitiveSchema = LogicalTypes.decimal(decimal.precision(), decimal.scale())
+                .addToSchema(Schema.createFixed(
+                        "decimal_" + decimal.precision() + "_" + decimal.scale(),
+                        null, null, computeMinBytesForPrecision(decimal.precision())));
+        break;
       default:
         throw new UnsupportedOperationException(
                 "Unsupported type ID: " + primitive.typeId());
     }
+    return primitiveSchema;
   }
 
   /**

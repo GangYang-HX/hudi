@@ -18,11 +18,12 @@
 
 package org.apache.hudi.examples.quickstart;
 
-import org.apache.hudi.client.SparkRDDReadClient;
+import org.apache.hudi.client.HoodieReadClient;
 import org.apache.hudi.client.SparkRDDWriteClient;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
+import org.apache.hudi.common.model.HoodieAvroPayload;
+import org.apache.hudi.examples.common.HoodieExampleDataGenerator;
 import org.apache.hudi.testutils.providers.SparkProvider;
-
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SQLContext;
@@ -35,14 +36,12 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.File;
 import java.nio.file.Paths;
 
-import static org.apache.hudi.examples.quickstart.HoodieSparkQuickstart.runQuickstart;
-
 public class TestHoodieSparkQuickstart implements SparkProvider {
-  protected static HoodieSparkEngineContext context;
+  protected static transient HoodieSparkEngineContext context;
 
-  private static SparkSession spark;
-  private static SQLContext sqlContext;
-  private static JavaSparkContext jsc;
+  private static transient SparkSession spark;
+  private static transient SQLContext sqlContext;
+  private static transient JavaSparkContext jsc;
 
   /**
    * An indicator of the initialization status.
@@ -50,6 +49,8 @@ public class TestHoodieSparkQuickstart implements SparkProvider {
   protected boolean initialized = false;
   @TempDir
   protected java.nio.file.Path tempDir;
+
+  private static final HoodieExampleDataGenerator<HoodieAvroPayload> DATA_GEN = new HoodieExampleDataGenerator<>();
 
   @Override
   public SparkSession spark() {
@@ -85,7 +86,7 @@ public class TestHoodieSparkQuickstart implements SparkProvider {
     if (!initialized) {
       SparkConf sparkConf = conf();
       SparkRDDWriteClient.registerClasses(sparkConf);
-      SparkRDDReadClient.addHoodieSupport(sparkConf);
+      HoodieReadClient.addHoodieSupport(sparkConf);
       spark = SparkSession.builder().config(sparkConf).getOrCreate();
       sqlContext = spark.sqlContext();
       jsc = new JavaSparkContext(spark.sparkContext());
@@ -99,7 +100,15 @@ public class TestHoodieSparkQuickstart implements SparkProvider {
     String tablePath = tablePath(tableName);
 
     try {
-      runQuickstart(jsc, spark, tableName, tablePath);
+      HoodieSparkQuickstart.insertData(spark, jsc, tablePath, tableName, DATA_GEN);
+      HoodieSparkQuickstart.updateData(spark, jsc, tablePath, tableName, DATA_GEN);
+
+      HoodieSparkQuickstart.queryData(spark, jsc, tablePath, tableName, DATA_GEN);
+      HoodieSparkQuickstart.incrementalQuery(spark, tablePath, tableName);
+      HoodieSparkQuickstart.pointInTimeQuery(spark, tablePath, tableName);
+
+      HoodieSparkQuickstart.delete(spark, tablePath, tableName);
+      HoodieSparkQuickstart.deleteByPartition(spark, tablePath, tableName);
     } finally {
       Utils.deleteRecursively(new File(tablePath));
     }

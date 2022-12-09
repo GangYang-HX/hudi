@@ -17,28 +17,39 @@
 
 package org.apache.spark.sql.hudi
 
-import org.apache.hudi.common.util.BinaryUtil
-import org.apache.spark.SparkConf
-import org.apache.spark.serializer.{KryoSerializer, SerializerInstance}
+import java.io.ByteArrayOutputStream
 
-import java.nio.ByteBuffer
+import com.esotericsoftware.kryo.Kryo
+import com.esotericsoftware.kryo.io.{Input, Output}
+import org.apache.spark.SparkConf
+import org.apache.spark.serializer.KryoSerializer
 
 
 object SerDeUtils {
 
-  private val SERIALIZER_THREAD_LOCAL = new ThreadLocal[SerializerInstance] {
+  private val kryoLocal = new ThreadLocal[Kryo] {
 
-    override protected def initialValue: SerializerInstance = {
-      new KryoSerializer(new SparkConf(true)).newInstance()
+    override protected def initialValue: Kryo = {
+      val serializer = new KryoSerializer(new SparkConf(true))
+      serializer.newKryo()
     }
   }
 
   def toBytes(o: Any): Array[Byte] = {
-    val buf = SERIALIZER_THREAD_LOCAL.get.serialize(o)
-    BinaryUtil.toBytes(buf)
+    val outputStream = new ByteArrayOutputStream(4096 * 5)
+    val output = new Output(outputStream)
+    try {
+      kryoLocal.get.writeClassAndObject(output, o)
+      output.flush()
+    } finally {
+      output.clear()
+      output.close()
+    }
+    outputStream.toByteArray
   }
 
   def toObject(bytes: Array[Byte]): Any = {
-    SERIALIZER_THREAD_LOCAL.get.deserialize(ByteBuffer.wrap(bytes))
+    val input = new Input(bytes)
+    kryoLocal.get.readClassAndObject(input)
   }
 }

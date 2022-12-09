@@ -31,7 +31,6 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.storage.StorageLevel;
 
-import java.util.List;
 import java.util.Map;
 
 import scala.Tuple2;
@@ -42,7 +41,7 @@ import scala.Tuple2;
  * @param <K> type of key.
  * @param <V> type of value.
  */
-public class HoodieJavaPairRDD<K, V> implements HoodiePairData<K, V> {
+public class HoodieJavaPairRDD<K, V> extends HoodiePairData<K, V> {
 
   private final JavaPairRDD<K, V> pairRDDData;
 
@@ -106,13 +105,8 @@ public class HoodieJavaPairRDD<K, V> implements HoodiePairData<K, V> {
   }
 
   @Override
-  public HoodiePairData<K, Iterable<V>> groupByKey() {
-    return new HoodieJavaPairRDD<>(pairRDDData.groupByKey());
-  }
-
-  @Override
-  public HoodiePairData<K, V> reduceByKey(SerializableBiFunction<V, V, V> combiner, int parallelism) {
-    return HoodieJavaPairRDD.of(pairRDDData.reduceByKey(combiner::apply, parallelism));
+  public HoodiePairData<K, V> reduceByKey(SerializableBiFunction<V, V, V> func, int parallelism) {
+    return HoodieJavaPairRDD.of(pairRDDData.reduceByKey(func::apply, parallelism));
   }
 
   @Override
@@ -135,10 +129,5 @@ public class HoodieJavaPairRDD<K, V> implements HoodiePairData<K, V> {
         pairRDDData.leftOuterJoin(HoodieJavaPairRDD.getJavaPairRDD(other))
             .map(tuple -> new Tuple2<>(tuple._1,
                 new ImmutablePair<>(tuple._2._1, Option.ofNullable(tuple._2._2.orElse(null)))))));
-  }
-
-  @Override
-  public List<Pair<K, V>> collectAsList() {
-    return pairRDDData.map(t -> Pair.of(t._1, t._2)).collect();
   }
 }

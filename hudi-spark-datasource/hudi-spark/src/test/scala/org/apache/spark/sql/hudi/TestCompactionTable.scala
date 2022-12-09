@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.hudi
 
-class TestCompactionTable extends HoodieSparkSqlTestBase {
+class TestCompactionTable extends TestHoodieSqlBase {
 
   test("Test compaction table") {
     withTempDir {tmp =>

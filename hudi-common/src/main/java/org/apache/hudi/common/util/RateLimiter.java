@@ -21,16 +21,12 @@ package org.apache.hudi.common.util;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
-import javax.annotation.concurrent.ThreadSafe;
-
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.concurrent.ThreadSafe;
 
-/**
- * Thread-safe rate limiter implementation.
- */
 @ThreadSafe
 public class RateLimiter {
 
@@ -57,22 +53,19 @@ public class RateLimiter {
   }
 
   public boolean tryAcquire(int numPermits) {
-    int remainingPermits = numPermits;
-    while (remainingPermits > 0) {
-      if (remainingPermits > maxPermits) {
-        acquire(maxPermits);
-        remainingPermits -= maxPermits;
-      } else {
-        return acquire(remainingPermits);
-      }
+    if (numPermits > maxPermits) {
+      acquire(maxPermits);
+      return tryAcquire(numPermits - maxPermits);
+    } else {
+      return acquire(numPermits);
     }
-    return true;
   }
 
   public boolean acquire(int numOps) {
     try {
-      while (!semaphore.tryAcquire(numOps)) {
+      if (!semaphore.tryAcquire(numOps)) {
         Thread.sleep(WAIT_BEFORE_NEXT_ACQUIRE_PERMIT_IN_MS);
+        return acquire(numOps);
       }
       LOG.debug(String.format("acquire permits: %s, maxPremits: %s", numOps, maxPermits));
     } catch (InterruptedException e) {

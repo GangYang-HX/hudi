@@ -48,7 +48,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
 import java.io.IOException;
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -60,7 +59,7 @@ import static org.apache.hudi.common.testutils.SchemaTestUtil.getSchemaFromResou
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-public class TestUpdateSchemaEvolution extends HoodieClientTestHarness implements Serializable {
+public class TestUpdateSchemaEvolution extends HoodieClientTestHarness {
 
   @BeforeEach
   public void setUp() throws Exception {

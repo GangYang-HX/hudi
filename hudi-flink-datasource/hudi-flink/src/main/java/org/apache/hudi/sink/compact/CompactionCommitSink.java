@@ -20,7 +20,9 @@ package org.apache.hudi.sink.compact;
 
 import org.apache.hudi.avro.model.HoodieCompactionPlan;
 import org.apache.hudi.client.WriteStatus;
-import org.apache.hudi.common.data.HoodieListData;
+import org.apache.hudi.commit.policy.CompactionWriteCommitPolicy;
+import org.apache.hudi.commit.policy.WriteCommitPolicy;
+import org.apache.hudi.common.data.HoodieList;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.util.CompactionUtils;
 import org.apache.hudi.common.util.Option;
@@ -30,7 +32,7 @@ import org.apache.hudi.sink.CleanFunction;
 import org.apache.hudi.table.HoodieFlinkTable;
 import org.apache.hudi.table.action.compact.CompactHelpers;
 import org.apache.hudi.util.CompactionUtil;
-import org.apache.hudi.util.FlinkWriteClients;
+import org.apache.hudi.util.StreamerUtil;
 
 import org.apache.flink.configuration.Configuration;
 import org.slf4j.Logger;
@@ -91,7 +93,7 @@ public class CompactionCommitSink extends CleanFunction<CompactionCommitEvent> {
   public void open(Configuration parameters) throws Exception {
     super.open(parameters);
     if (writeClient == null) {
-      this.writeClient = FlinkWriteClients.createWriteClient(conf, getRuntimeContext());
+      this.writeClient = StreamerUtil.createWriteClient(conf, getRuntimeContext());
     }
     this.commitBuffer = new HashMap<>();
     this.compactionPlanCache = new HashMap<>();
@@ -118,7 +120,7 @@ public class CompactionCommitSink extends CleanFunction<CompactionCommitEvent> {
       try {
         return CompactionUtils.getCompactionPlan(
             this.writeClient.getHoodieTable().getMetaClient(), instant);
-      } catch (Exception e) {
+      } catch (IOException e) {
         throw new HoodieException(e);
       }
     });
@@ -128,19 +130,37 @@ public class CompactionCommitSink extends CleanFunction<CompactionCommitEvent> {
       return;
     }
 
-    if (events.stream().anyMatch(CompactionCommitEvent::isFailed)) {
-      try {
-        // handle failure case
-        CompactionUtil.rollbackCompaction(table, instant);
-      } finally {
-        // remove commitBuffer to avoid obsolete metadata commit
-        reset(instant);
-      }
-      return;
-    }
+    List<WriteStatus> statuses = events.stream()
+        .filter(event -> !event.isFailed())
+        .map(CompactionCommitEvent::getWriteStatuses)
+        .flatMap(Collection::stream)
+        .collect(Collectors.toList());
+    // commit or rollback
+    WriteCommitPolicy compactWriteCommitPolicy = new CompactionWriteCommitPolicy(
+        this::compactCommit,
+        this::compactRollback,
+        () -> events.stream().anyMatch(CompactionCommitEvent::isFailed) || statuses.stream().anyMatch(WriteStatus::hasErrors),
+        this.conf.getBoolean(FlinkOptions.IGNORE_FAILED),
+        instant,
+        events
+        );
+    compactWriteCommitPolicy.initialize();
+    compactWriteCommitPolicy.handleCommitOrRollback();
+  }
 
+  private void compactRollback(String instant, List<WriteStatus> writeStatuses) {
     try {
-      doCommit(instant, events);
+      // handle failure case
+      CompactionUtil.rollbackCompaction(table, instant);
+    } finally {
+      // remove commitBuffer to avoid obsolete metadata commit
+      reset(instant);
+    }
+  }
+
+  private void compactCommit(String instant, Long watermark, List<WriteStatus> writeStatuses) {
+    try {
+      doCommit(instant, writeStatuses);
     } catch (Throwable throwable) {
       // make it fail-safe
       LOG.error("Error while committing compaction instant: " + instant, throwable);
@@ -151,14 +171,9 @@ public class CompactionCommitSink extends CleanFunction<CompactionCommitEvent> {
   }
 
   @SuppressWarnings("unchecked")
-  private void doCommit(String instant, Collection<CompactionCommitEvent> events) throws IOException {
-    List<WriteStatus> statuses = events.stream()
-        .map(CompactionCommitEvent::getWriteStatuses)
-        .flatMap(Collection::stream)
-        .collect(Collectors.toList());
-
+  private void doCommit(String instant, List<WriteStatus> statuses) throws IOException {
     HoodieCommitMetadata metadata = CompactHelpers.getInstance().createCompactionMetadata(
-        table, instant, HoodieListData.eager(statuses), writeClient.getConfig().getSchema());
+        table, instant, HoodieList.of(statuses), writeClient.getConfig().getSchema());
 
     // commit the compaction
     this.writeClient.commitCompaction(instant, metadata, Option.empty());

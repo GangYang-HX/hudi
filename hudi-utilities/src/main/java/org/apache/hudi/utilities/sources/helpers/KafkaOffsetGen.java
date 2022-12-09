@@ -22,17 +22,17 @@ import org.apache.hudi.DataSourceUtils;
 import org.apache.hudi.common.config.ConfigProperty;
 import org.apache.hudi.common.config.TypedProperties;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.utilities.exception.HoodieDeltaStreamerException;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
-import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamerMetrics;
-import org.apache.hudi.utilities.exception.HoodieDeltaStreamerException;
-import org.apache.hudi.utilities.sources.AvroKafkaSource;
 
+import org.apache.hudi.utilities.deltastreamer.HoodieDeltaStreamerMetrics;
+import org.apache.hudi.utilities.sources.AvroKafkaSource;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.TimeoutException;
@@ -48,7 +48,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -110,13 +109,11 @@ public class KafkaOffsetGen {
       Comparator<OffsetRange> byPartition = Comparator.comparing(OffsetRange::partition);
 
       // Create initial offset ranges for each 'to' partition, with from = to offsets.
-      OffsetRange[] ranges = toOffsetMap.keySet().stream().map(tp -> {
+      OffsetRange[] ranges = new OffsetRange[toOffsetMap.size()];
+      toOffsetMap.keySet().stream().map(tp -> {
         long fromOffset = fromOffsetMap.getOrDefault(tp, 0L);
         return OffsetRange.create(tp, fromOffset, fromOffset);
-      })
-          .sorted(byPartition)
-          .collect(Collectors.toList())
-          .toArray(new OffsetRange[toOffsetMap.size()]);
+      }).sorted(byPartition).collect(Collectors.toList()).toArray(ranges);
 
       long allocedEvents = 0;
       Set<Integer> exhaustedPartitions = new HashSet<>();
@@ -172,24 +169,14 @@ public class KafkaOffsetGen {
             .withDocumentation("Kafka topic name.");
 
     public static final ConfigProperty<String> KAFKA_CHECKPOINT_TYPE = ConfigProperty
-        .key("hoodie.deltastreamer.source.kafka.checkpoint.type")
-        .defaultValue("string")
-        .withDocumentation("Kafka checkpoint type.");
-
-    public static final ConfigProperty<Long> KAFKA_FETCH_PARTITION_TIME_OUT = ConfigProperty
-        .key("hoodie.deltastreamer.source.kafka.fetch_partition.time.out")
-        .defaultValue(300 * 1000L)
-        .withDocumentation("Time out for fetching partitions. 5min by default");
+            .key("hoodie.deltastreamer.source.kafka.checkpoint.type")
+            .defaultValue("string")
+            .withDocumentation("Kafka chepoint type.");
 
     public static final ConfigProperty<Boolean> ENABLE_KAFKA_COMMIT_OFFSET = ConfigProperty
             .key("hoodie.deltastreamer.source.kafka.enable.commit.offset")
             .defaultValue(false)
             .withDocumentation("Automatically submits offset to kafka.");
-
-    public static final ConfigProperty<Boolean> ENABLE_FAIL_ON_DATA_LOSS = ConfigProperty
-            .key("hoodie.deltastreamer.source.kafka.enable.failOnDataLoss")
-            .defaultValue(false)
-            .withDocumentation("Fail when checkpoint goes out of bounds instead of seeking to earliest offsets.");
 
     public static final ConfigProperty<Long> MAX_EVENTS_FROM_KAFKA_SOURCE_PROP = ConfigProperty
             .key("hoodie.deltastreamer.kafka.source.maxEvents")
@@ -249,7 +236,8 @@ public class KafkaOffsetGen {
       if (!checkTopicExists(consumer)) {
         throw new HoodieException("Kafka topic:" + topicName + " does not exist");
       }
-      List<PartitionInfo> partitionInfoList = fetchPartitionInfos(consumer, topicName);
+      List<PartitionInfo> partitionInfoList;
+      partitionInfoList = consumer.partitionsFor(topicName);
       Set<TopicPartition> topicPartitions = partitionInfoList.stream()
               .map(x -> new TopicPartition(x.topic(), x.partition())).collect(Collectors.toSet());
 
@@ -292,41 +280,11 @@ public class KafkaOffsetGen {
       numEvents = sourceLimit;
     }
 
-    // TODO(HUDI-4625) remove
     if (numEvents < toOffsets.size()) {
       throw new HoodieException("sourceLimit should not be less than the number of kafka partitions");
     }
 
     return CheckpointUtils.computeOffsetRanges(fromOffsets, toOffsets, numEvents);
-  }
-
-  /**
-   * Fetch partition infos for given topic.
-   *
-   * @param consumer
-   * @param topicName
-   */
-  private List<PartitionInfo> fetchPartitionInfos(KafkaConsumer consumer, String topicName) {
-    long timeout = this.props.getLong(Config.KAFKA_FETCH_PARTITION_TIME_OUT.key(), Config.KAFKA_FETCH_PARTITION_TIME_OUT.defaultValue());
-    long start = System.currentTimeMillis();
-
-    List<PartitionInfo> partitionInfos;
-    do {
-      // TODO(HUDI-4625) cleanup, introduce retrying client
-      partitionInfos = consumer.partitionsFor(topicName);
-      try {
-        if (partitionInfos == null) {
-          TimeUnit.SECONDS.sleep(10);
-        }
-      } catch (InterruptedException e) {
-        LOG.error("Sleep failed while fetching partitions");
-      }
-    } while (partitionInfos == null && (System.currentTimeMillis() <= (start + timeout)));
-
-    if (partitionInfos == null) {
-      throw new HoodieDeltaStreamerException(String.format("Can not find metadata for topic %s from kafka cluster", topicName));
-    }
-    return partitionInfos;
   }
 
   /**
@@ -340,19 +298,9 @@ public class KafkaOffsetGen {
                                                         Option<String> lastCheckpointStr, Set<TopicPartition> topicPartitions) {
     Map<TopicPartition, Long> earliestOffsets = consumer.beginningOffsets(topicPartitions);
     Map<TopicPartition, Long> checkpointOffsets = CheckpointUtils.strToOffsets(lastCheckpointStr.get());
-    boolean isCheckpointOutOfBounds = checkpointOffsets.entrySet().stream()
+    boolean checkpointOffsetReseter = checkpointOffsets.entrySet().stream()
         .anyMatch(offset -> offset.getValue() < earliestOffsets.get(offset.getKey()));
-    if (isCheckpointOutOfBounds) {
-      if (this.props.getBoolean(Config.ENABLE_FAIL_ON_DATA_LOSS.key(), Config.ENABLE_FAIL_ON_DATA_LOSS.defaultValue())) {
-        throw new HoodieDeltaStreamerException("Some data may have been lost because they are not available in Kafka any more;"
-            + " either the data was aged out by Kafka or the topic may have been deleted before all the data in the topic was processed.");
-      } else {
-        LOG.warn("Some data may have been lost because they are not available in Kafka any more;"
-            + " either the data was aged out by Kafka or the topic may have been deleted before all the data in the topic was processed."
-            + " If you want delta streamer to fail on such cases, set \"" + Config.ENABLE_FAIL_ON_DATA_LOSS.key() + "\" to \"true\".");
-      }
-    }
-    return isCheckpointOutOfBounds ? earliestOffsets : checkpointOffsets;
+    return checkpointOffsetReseter ? earliestOffsets : checkpointOffsets;
   }
 
   /**

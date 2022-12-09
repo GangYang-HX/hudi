@@ -23,13 +23,11 @@ import org.apache.hudi.callback.client.http.HoodieWriteCommitHttpCallbackClient;
 import org.apache.http.StatusLine;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.core.Appender;
-import org.apache.logging.log4j.core.LogEvent;
-import org.apache.logging.log4j.core.Logger;
+import org.apache.log4j.AppenderSkeleton;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.apache.log4j.spi.LoggingEvent;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -38,7 +36,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.io.IOException;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,10 +52,10 @@ import static org.mockito.Mockito.when;
 public class TestCallbackHttpClient {
 
   @Mock
-  Appender appender;
+  AppenderSkeleton appender;
 
   @Captor
-  ArgumentCaptor<LogEvent> logCaptor;
+  ArgumentCaptor<LoggingEvent> logCaptor;
 
   @Mock
   CloseableHttpClient httpClient;
@@ -69,24 +66,8 @@ public class TestCallbackHttpClient {
   @Mock
   StatusLine statusLine;
 
-  private Level initialLogLevel;
-
-  @BeforeEach
-  void prepareAppender() {
-    when(appender.getName()).thenReturn("MockAppender-" + UUID.randomUUID());
-    when(appender.isStarted()).thenReturn(true);
-    when(appender.isStopped()).thenReturn(false);
-    Logger logger = (Logger) LogManager.getLogger(HoodieWriteCommitHttpCallbackClient.class);
-    initialLogLevel = logger.getLevel();
-    logger.setLevel(Level.DEBUG);
-    logger.addAppender(appender);
-  }
-
   @AfterEach
   void resetMocks() {
-    Logger logger = (Logger) LogManager.getLogger(HoodieWriteCommitHttpCallbackClient.class);
-    logger.setLevel(initialLogLevel);
-    logger.removeAppender(appender);
     reset(appender, httpClient, httpResponse, statusLine);
   }
 
@@ -102,19 +83,21 @@ public class TestCallbackHttpClient {
 
   @Test
   public void sendPayloadShouldLogWhenRequestFailed() throws IOException {
+    Logger.getRootLogger().addAppender(appender);
     when(httpClient.execute(any())).thenThrow(IOException.class);
 
     HoodieWriteCommitHttpCallbackClient hoodieWriteCommitCallBackHttpClient =
         new HoodieWriteCommitHttpCallbackClient("fake_api_key", "fake_url", httpClient);
     hoodieWriteCommitCallBackHttpClient.send("{}");
 
-    verify(appender).append(logCaptor.capture());
-    assertEquals("Failed to send callback.", logCaptor.getValue().getMessage().getFormattedMessage());
+    verify(appender).doAppend(logCaptor.capture());
+    assertEquals("Failed to send callback.", logCaptor.getValue().getRenderedMessage());
     assertEquals(Level.WARN, logCaptor.getValue().getLevel());
   }
 
   @Test
   public void sendPayloadShouldLogUnsuccessfulSending() {
+    Logger.getRootLogger().addAppender(appender);
     mockResponse(401);
     when(httpResponse.toString()).thenReturn("unauthorized");
 
@@ -122,21 +105,22 @@ public class TestCallbackHttpClient {
         new HoodieWriteCommitHttpCallbackClient("fake_api_key", "fake_url", httpClient);
     hoodieWriteCommitCallBackHttpClient.send("{}");
 
-    verify(appender).append(logCaptor.capture());
-    assertEquals("Failed to send callback message. Response was unauthorized", logCaptor.getValue().getMessage().getFormattedMessage());
+    verify(appender).doAppend(logCaptor.capture());
+    assertEquals("Failed to send callback message. Response was unauthorized", logCaptor.getValue().getRenderedMessage());
     assertEquals(Level.WARN, logCaptor.getValue().getLevel());
   }
 
   @Test
   public void sendPayloadShouldLogSuccessfulSending() {
+    Logger.getRootLogger().addAppender(appender);
     mockResponse(202);
 
     HoodieWriteCommitHttpCallbackClient hoodieWriteCommitCallBackHttpClient =
         new HoodieWriteCommitHttpCallbackClient("fake_api_key", "fake_url", httpClient);
     hoodieWriteCommitCallBackHttpClient.send("{}");
 
-    verify(appender).append(logCaptor.capture());
-    assertTrue(logCaptor.getValue().getMessage().getFormattedMessage().startsWith("Sent Callback data"));
+    verify(appender).doAppend(logCaptor.capture());
+    assertTrue(logCaptor.getValue().getRenderedMessage().startsWith("Sent Callback data"));
     assertEquals(Level.INFO, logCaptor.getValue().getLevel());
   }
 

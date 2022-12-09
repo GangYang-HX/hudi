@@ -25,9 +25,6 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
-/**
- * Tests {@link Base64CodecUtil}.
- */
 public class TestBase64CodecUtil {
 
   @Test

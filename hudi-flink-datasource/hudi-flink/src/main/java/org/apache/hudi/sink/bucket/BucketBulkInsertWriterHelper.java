@@ -22,7 +22,7 @@ import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.index.bucket.BucketIdentifier;
 import org.apache.hudi.io.storage.row.HoodieRowDataCreateHandle;
 import org.apache.hudi.sink.bulk.BulkInsertWriterHelper;
-import org.apache.hudi.sink.bulk.RowDataKeyGen;
+import org.apache.hudi.sink.bulk.RowDataKeyGenInterface;
 import org.apache.hudi.sink.bulk.sort.SortOperatorGen;
 import org.apache.hudi.table.HoodieTable;
 
@@ -69,9 +69,8 @@ public class BucketBulkInsertWriterHelper extends BulkInsertWriterHelper {
       }
       handle.write(recordKey, partitionPath, record);
     } catch (Throwable throwable) {
-      IOException ioException = new IOException("Exception happened when bulk insert.", throwable);
-      LOG.error("Global error thrown while trying to write records in HoodieRowDataCreateHandle", ioException);
-      throw ioException;
+      LOG.error("Global error thrown while trying to write records in HoodieRowDataCreateHandle", throwable);
+      throw throwable;
     }
   }
 
@@ -82,7 +81,7 @@ public class BucketBulkInsertWriterHelper extends BulkInsertWriterHelper {
         close();
       }
       HoodieRowDataCreateHandle rowCreateHandle = new HoodieRowDataCreateHandle(hoodieTable, writeConfig, partitionPath, fileId,
-          instantTime, taskPartitionId, taskId, taskEpochId, rowType, preserveHoodieMetadata);
+          instantTime, taskPartitionId, taskId, taskEpochId, rowType, isUtcTimestamp);
       handles.put(fileId, rowCreateHandle);
     }
     return handles.get(fileId);
@@ -92,7 +91,7 @@ public class BucketBulkInsertWriterHelper extends BulkInsertWriterHelper {
     return new SortOperatorGen(rowType, new String[] {FILE_GROUP_META_FIELD});
   }
 
-  private static String getFileId(Map<String, String> bucketIdToFileId, RowDataKeyGen keyGen, RowData record, String indexKeys, int numBuckets) {
+  private static String getFileId(Map<String, String> bucketIdToFileId, RowDataKeyGenInterface keyGen, RowData record, String indexKeys, int numBuckets) {
     String recordKey = keyGen.getRecordKey(record);
     String partition = keyGen.getPartitionPath(record);
     final int bucketNum = BucketIdentifier.getBucketId(recordKey, indexKeys, numBuckets);
@@ -100,7 +99,7 @@ public class BucketBulkInsertWriterHelper extends BulkInsertWriterHelper {
     return bucketIdToFileId.computeIfAbsent(bucketId, k -> BucketIdentifier.newBucketFileIdPrefix(bucketNum));
   }
 
-  public static RowData rowWithFileId(Map<String, String> bucketIdToFileId, RowDataKeyGen keyGen, RowData record, String indexKeys, int numBuckets) {
+  public static RowData rowWithFileId(Map<String, String> bucketIdToFileId, RowDataKeyGenInterface keyGen, RowData record, String indexKeys, int numBuckets) {
     final String fileId = getFileId(bucketIdToFileId, keyGen, record, indexKeys, numBuckets);
     return GenericRowData.of(StringData.fromString(fileId), record);
   }

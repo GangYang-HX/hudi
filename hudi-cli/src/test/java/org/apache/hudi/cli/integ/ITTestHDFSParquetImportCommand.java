@@ -18,13 +18,9 @@
 
 package org.apache.hudi.cli.integ;
 
-import org.apache.avro.generic.GenericRecord;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.commands.TableCommand;
-import org.apache.hudi.cli.testutils.HoodieCLIIntegrationTestBase;
-import org.apache.hudi.cli.testutils.ShellEvaluationResultUtil;
+import org.apache.hudi.cli.testutils.AbstractShellIntegrationTest;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
@@ -33,14 +29,16 @@ import org.apache.hudi.testutils.HoodieClientTestUtils;
 import org.apache.hudi.utilities.HDFSParquetImporter;
 import org.apache.hudi.utilities.functional.TestHDFSParquetImporter;
 import org.apache.hudi.utilities.functional.TestHDFSParquetImporter.HoodieTripModel;
+
+import org.apache.avro.generic.GenericRecord;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.Path;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -57,11 +55,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Test class for {@link org.apache.hudi.cli.commands.HDFSParquetImportCommand}.
  */
 @Disabled("Disable due to flakiness and feature deprecation.")
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
-public class ITTestHDFSParquetImportCommand extends HoodieCLIIntegrationTestBase {
+public class ITTestHDFSParquetImportCommand extends AbstractShellIntegrationTest {
 
-  @Autowired
-  private Shell shell;
   private Path sourcePath;
   private Path targetPath;
   private String tableName;
@@ -98,12 +93,11 @@ public class ITTestHDFSParquetImportCommand extends HoodieCLIIntegrationTestBase
         + "--schemaFilePath %s --format %s --sparkMemory %s --retry %s --sparkMaster %s",
         sourcePath.toString(), targetPath.toString(), tableName, HoodieTableType.COPY_ON_WRITE.name(),
         "_row_key", "timestamp", "1", schemaFile, "parquet", "2G", "1", "local");
-
-    Object result = shell.evaluate(() -> command);
+    CommandResult cr = getShell().executeCommand(command);
 
     assertAll("Command run success",
-        () -> assertTrue(ShellEvaluationResultUtil.isSuccess(result)),
-        () -> assertEquals("Table imported to hoodie format", result.toString()));
+        () -> assertTrue(cr.isSuccess()),
+        () -> assertEquals("Table imported to hoodie format", cr.getResult().toString()));
 
     // Check hudi table exist
     String metaPath = targetPath + Path.SEPARATOR + HoodieTableMetaClient.METAFOLDER_NAME;
@@ -145,11 +139,11 @@ public class ITTestHDFSParquetImportCommand extends HoodieCLIIntegrationTestBase
         + "--schemaFilePath %s --format %s --sparkMemory %s --retry %s --sparkMaster %s --upsert %s",
         upsertFolder.toString(), targetPath.toString(), tableName, HoodieTableType.COPY_ON_WRITE.name(),
         "_row_key", "timestamp", "1", schemaFile, "parquet", "2G", "1", "local", "true");
-    Object result = shell.evaluate(() -> command);
+    CommandResult cr = getShell().executeCommand(command);
 
     assertAll("Command run success",
-        () -> assertTrue(ShellEvaluationResultUtil.isSuccess(result)),
-        () -> assertEquals("Table imported to hoodie format", result.toString()));
+        () -> assertTrue(cr.isSuccess()),
+        () -> assertEquals("Table imported to hoodie format", cr.getResult().toString()));
 
     // reload meta client
     metaClient = HoodieTableMetaClient.reload(metaClient);

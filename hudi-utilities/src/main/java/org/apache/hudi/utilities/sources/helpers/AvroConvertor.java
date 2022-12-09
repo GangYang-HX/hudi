@@ -20,7 +20,6 @@ package org.apache.hudi.utilities.sources.helpers;
 
 import org.apache.hudi.avro.MercifulJsonConverter;
 
-import com.google.protobuf.Message;
 import com.twitter.bijection.Injection;
 import com.twitter.bijection.avro.GenericAvroCodecs;
 import org.apache.avro.Schema;
@@ -95,10 +94,5 @@ public class AvroConvertor implements Serializable {
     initSchema();
     initInjection();
     return recordInjection.invert(avroBinary).get();
-  }
-
-  public GenericRecord fromProtoMessage(Message message) {
-    initSchema();
-    return ProtoConversionUtil.convertToAvro(schema, message);
   }
 }

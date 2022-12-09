@@ -88,18 +88,6 @@ public abstract class HoodieIndex<I, O> implements Serializable {
       HoodieData<WriteStatus> writeStatuses, HoodieEngineContext context,
       HoodieTable hoodieTable) throws HoodieIndexException;
 
-
-  /**
-   * Extracts the location of written records, and updates the index.
-   */
-  @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
-  public HoodieData<WriteStatus> updateLocation(
-      HoodieData<WriteStatus> writeStatuses, HoodieEngineContext context,
-      HoodieTable hoodieTable, String instant) throws HoodieIndexException {
-    return updateLocation(writeStatuses, context, hoodieTable);
-  }
-
-
   /**
    * Rollback the effects of the commit made at instantTime.
    */
@@ -111,13 +99,13 @@ public abstract class HoodieIndex<I, O> implements Serializable {
    * implementation is able to obtain the same mapping, for two hoodie keys with same `recordKey` but different
    * `partitionPath`
    *
-   * @return whether the index implementation is global in nature
+   * @return whether or not, the index implementation is global in nature
    */
   @PublicAPIMethod(maturity = ApiMaturityLevel.STABLE)
   public abstract boolean isGlobal();
 
   /**
-   * This is used by storage to determine, if it is safe to send inserts, straight to the log, i.e. having a
+   * This is used by storage to determine, if its safe to send inserts, straight to the log, i.e having a
    * {@link FileSlice}, with no data file.
    *
    * @return Returns true/false depending on whether the impl has this capability
@@ -133,7 +121,7 @@ public abstract class HoodieIndex<I, O> implements Serializable {
   public abstract boolean isImplicitWithStorage();
 
   /**
-   * To indicate if an operation type requires location tagging before writing
+   * If the `getCustomizedPartitioner` returns a partitioner, it has to be true.
    */
   @PublicAPIMethod(maturity = ApiMaturityLevel.EVOLVING)
   public boolean requiresTagging(WriteOperationType operationType) {
@@ -147,16 +135,12 @@ public abstract class HoodieIndex<I, O> implements Serializable {
   }
 
   /**
-   * Each index type should implement its own logic to release any resources acquired during the process.
+   * Each index type should implement it's own logic to release any resources acquired during the process.
    */
   public void close() {
   }
 
   public enum IndexType {
     HBASE, INMEMORY, BLOOM, GLOBAL_BLOOM, SIMPLE, GLOBAL_SIMPLE, BUCKET, FLINK_STATE
-  }
-
-  public enum BucketIndexEngineType {
-    SIMPLE, CONSISTENT_HASHING
   }
 }

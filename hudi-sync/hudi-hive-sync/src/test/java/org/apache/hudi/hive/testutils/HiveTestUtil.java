@@ -47,7 +47,6 @@ import org.apache.hudi.common.util.FileIOUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.hive.HiveSyncConfig;
 import org.apache.hudi.hive.HiveSyncTool;
-import org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor;
 import org.apache.hudi.hive.ddl.HiveQueryDDLExecutor;
 import org.apache.hudi.hive.ddl.QueryBasedDDLExecutor;
 
@@ -85,17 +84,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_BATCH_SYNC_PARTITION_NUM;
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_PASS;
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_URL;
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_USER;
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_USE_PRE_APACHE_INPUT_FORMAT;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_ASSUME_DATE_PARTITION;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_BASE_PATH;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_DATABASE_NAME;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_EXTRACTOR_CLASS;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_FIELDS;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_TABLE_NAME;
 import static org.junit.jupiter.api.Assertions.fail;
 
 @SuppressWarnings("SameParameterValue")
@@ -127,27 +115,26 @@ public class HiveTestUtil {
       hiveTestService = new HiveTestService(configuration);
       hiveServer = hiveTestService.start();
     }
+    fileSystem = FileSystem.get(configuration);
 
     basePath = Files.createTempDirectory("hivesynctest" + Instant.now().toEpochMilli()).toUri().toString();
 
     hiveSyncProps = new TypedProperties();
-    hiveSyncProps.setProperty(HIVE_URL.key(), hiveTestService.getJdbcHive2Url());
-    hiveSyncProps.setProperty(HIVE_USER.key(), "");
-    hiveSyncProps.setProperty(HIVE_PASS.key(), "");
-    hiveSyncProps.setProperty(META_SYNC_DATABASE_NAME.key(), DB_NAME);
-    hiveSyncProps.setProperty(META_SYNC_TABLE_NAME.key(), TABLE_NAME);
-    hiveSyncProps.setProperty(META_SYNC_BASE_PATH.key(), basePath);
-    hiveSyncProps.setProperty(META_SYNC_ASSUME_DATE_PARTITION.key(), "true");
-    hiveSyncProps.setProperty(HIVE_USE_PRE_APACHE_INPUT_FORMAT.key(), "false");
-    hiveSyncProps.setProperty(META_SYNC_PARTITION_FIELDS.key(), "datestr");
-    hiveSyncProps.setProperty(META_SYNC_PARTITION_EXTRACTOR_CLASS.key(), SlashEncodedDayPartitionValueExtractor.class.getName());
-    hiveSyncProps.setProperty(HIVE_BATCH_SYNC_PARTITION_NUM.key(), "3");
+    hiveSyncProps.setProperty(HiveSyncConfig.HIVE_URL.key(), hiveTestService.getJdbcHive2Url());
+    hiveSyncProps.setProperty(HiveSyncConfig.HIVE_USER.key(), "");
+    hiveSyncProps.setProperty(HiveSyncConfig.HIVE_PASS.key(), "");
+    hiveSyncProps.setProperty(HiveSyncConfig.META_SYNC_DATABASE_NAME.key(), DB_NAME);
+    hiveSyncProps.setProperty(HiveSyncConfig.META_SYNC_TABLE_NAME.key(), TABLE_NAME);
+    hiveSyncProps.setProperty(HiveSyncConfig.META_SYNC_BASE_PATH.key(), basePath);
+    hiveSyncProps.setProperty(HiveSyncConfig.META_SYNC_ASSUME_DATE_PARTITION.key(), "true");
+    hiveSyncProps.setProperty(HiveSyncConfig.HIVE_USE_PRE_APACHE_INPUT_FORMAT.key(), "false");
+    hiveSyncProps.setProperty(HiveSyncConfig.META_SYNC_PARTITION_FIELDS.key(), "datestr");
+    hiveSyncProps.setProperty(HiveSyncConfig.HIVE_BATCH_SYNC_PARTITION_NUM.key(), "3");
 
-    hiveSyncConfig = new HiveSyncConfig(hiveSyncProps, hiveTestService.getHiveConf());
-    fileSystem = hiveSyncConfig.getHadoopFileSystem();
+    hiveSyncConfig = new HiveSyncConfig(hiveSyncProps);
 
     dtfOut = DateTimeFormatter.ofPattern("yyyy/MM/dd");
-    ddlExecutor = new HiveQueryDDLExecutor(hiveSyncConfig);
+    ddlExecutor = new HiveQueryDDLExecutor(hiveSyncConfig, fileSystem, getHiveConf());
 
     clear();
   }
@@ -179,7 +166,7 @@ public class HiveTestUtil {
     return hiveServer.getHiveConf();
   }
 
-  public static void shutdown() throws IOException {
+  public static void shutdown() {
     if (hiveServer != null) {
       hiveServer.stop();
     }
@@ -187,9 +174,8 @@ public class HiveTestUtil {
       hiveTestService.stop();
     }
     if (zkServer != null) {
-      zkServer.shutdown(true);
+      zkServer.shutdown();
     }
-    fileSystem.close();
   }
 
   public static void createCOWTable(String instantTime, int numberOfPartitions, boolean useSchemaFromCommitMetadata,
@@ -248,7 +234,7 @@ public class HiveTestUtil {
     fileSystem.mkdirs(partPath);
     List<HoodieWriteStat> writeStats = new ArrayList<>();
     String fileId = UUID.randomUUID().toString();
-    Path filePath = new Path(partPath.toString() + "/" + FSUtils.makeBaseFileName(instantTime, "1-0-1", fileId));
+    Path filePath = new Path(partPath.toString() + "/" + FSUtils.makeDataFileName(instantTime, "1-0-1", fileId));
     Schema schema = SchemaTestUtil.getSchemaFromResource(HiveTestUtil.class, schemaFileName);
     generateParquetDataWithSchema(filePath, schema);
     HoodieWriteStat writeStat = new HoodieWriteStat();
@@ -385,7 +371,7 @@ public class HiveTestUtil {
     for (int i = 0; i < 5; i++) {
       // Create 5 files
       String fileId = UUID.randomUUID().toString();
-      Path filePath = new Path(partPath.toString() + "/" + FSUtils.makeBaseFileName(instantTime, "1-0-1", fileId));
+      Path filePath = new Path(partPath.toString() + "/" + FSUtils.makeDataFileName(instantTime, "1-0-1", fileId));
       generateParquetData(filePath, isParquetSchemaSimple);
       HoodieWriteStat writeStat = new HoodieWriteStat();
       writeStat.setFileId(fileId);
@@ -493,7 +479,7 @@ public class HiveTestUtil {
     fsout.close();
   }
 
-  public static void createReplaceCommitFile(HoodieReplaceCommitMetadata commitMetadata, String instantTime) throws IOException {
+  public static void createReplaceCommitFile(HoodieCommitMetadata commitMetadata, String instantTime) throws IOException {
     byte[] bytes = commitMetadata.toJsonString().getBytes(StandardCharsets.UTF_8);
     Path fullPath = new Path(basePath + "/" + HoodieTableMetaClient.METAFOLDER_NAME + "/"
         + HoodieTimeline.makeReplaceFileName(instantTime));

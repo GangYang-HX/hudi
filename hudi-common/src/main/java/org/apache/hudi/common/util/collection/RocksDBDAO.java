@@ -334,7 +334,8 @@ public class RocksDBDAO {
    */
   public <T extends Serializable> Stream<Pair<String, T>> prefixSearch(String columnFamilyName, String prefix) {
     ValidationUtils.checkArgument(!closed);
-    final HoodieTimer timer = HoodieTimer.start();
+    final HoodieTimer timer = new HoodieTimer();
+    timer.startTimer();
     long timeTakenMicro = 0;
     List<Pair<String, T>> results = new LinkedList<>();
     try (final RocksIterator it = getRocksDB().newIterator(managedHandlesMap.get(columnFamilyName))) {

@@ -30,9 +30,6 @@ import org.apache.hudi.table.action.commit.FlinkWriteHelper;
 
 import java.util.List;
 
-/**
- * Flink upsert delta commit action executor.
- */
 public class FlinkUpsertDeltaCommitActionExecutor<T extends HoodieRecordPayload<T>>
     extends BaseFlinkDeltaCommitActionExecutor<T> {
   private final List<HoodieRecord<T>> inputRecords;

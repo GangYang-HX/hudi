@@ -18,10 +18,6 @@
 
 package org.apache.hudi.common.util.jvm;
 
-/**
- * Implementation of {@link MemoryLayoutSpecification} based on
- * OpenJ9 Memory Layout Specification on 64-bit.
- */
 public class OpenJ9MemoryLayoutSpecification64bit implements MemoryLayoutSpecification {
   @Override
   public int getArrayHeaderSize() {

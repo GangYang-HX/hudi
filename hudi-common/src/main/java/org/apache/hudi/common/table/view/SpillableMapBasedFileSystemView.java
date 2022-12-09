@@ -18,6 +18,8 @@
 
 package org.apache.hudi.common.table.view;
 
+import org.apache.hadoop.fs.FileStatus;
+
 import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.model.BootstrapBaseFileMapping;
 import org.apache.hudi.common.model.CompactionOperation;
@@ -30,8 +32,6 @@ import org.apache.hudi.common.util.DefaultSizeEstimator;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ExternalSpillableMap;
 import org.apache.hudi.common.util.collection.Pair;
-
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -51,7 +51,6 @@ public class SpillableMapBasedFileSystemView extends HoodieTableFileSystemView {
 
   private final long maxMemoryForFileGroupMap;
   private final long maxMemoryForPendingCompaction;
-  private final long maxMemoryForPendingLogCompaction;
   private final long maxMemoryForBootstrapBaseFile;
   private final long maxMemoryForReplaceFileGroups;
   private final long maxMemoryForClusteringFileGroups;
@@ -64,7 +63,6 @@ public class SpillableMapBasedFileSystemView extends HoodieTableFileSystemView {
     super(config.isIncrementalTimelineSyncEnabled());
     this.maxMemoryForFileGroupMap = config.getMaxMemoryForFileGroupMap();
     this.maxMemoryForPendingCompaction = config.getMaxMemoryForPendingCompaction();
-    this.maxMemoryForPendingLogCompaction = config.getMaxMemoryForPendingLogCompaction();
     this.maxMemoryForBootstrapBaseFile = config.getMaxMemoryForBootstrapBaseFile();
     this.maxMemoryForReplaceFileGroups = config.getMaxMemoryForReplacedFileGroups();
     this.maxMemoryForClusteringFileGroups = config.getMaxMemoryForPendingClusteringFileGroups();
@@ -105,23 +103,6 @@ public class SpillableMapBasedFileSystemView extends HoodieTableFileSystemView {
           maxMemoryForPendingCompaction, baseStoreDir, new DefaultSizeEstimator(), new DefaultSizeEstimator<>(),
           diskMapType, isBitCaskDiskMapCompressionEnabled);
       pendingMap.putAll(fgIdToPendingCompaction);
-      return pendingMap;
-    } catch (IOException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  @Override
-  protected Map<HoodieFileGroupId, Pair<String, CompactionOperation>> createFileIdToPendingLogCompactionMap(
-      Map<HoodieFileGroupId, Pair<String, CompactionOperation>> fgIdToPendingLogCompaction) {
-    try {
-      LOG.info("Creating Pending Log Compaction map using external spillable Map. Max Mem=" + maxMemoryForPendingLogCompaction
-          + ", BaseDir=" + baseStoreDir);
-      new File(baseStoreDir).mkdirs();
-      Map<HoodieFileGroupId, Pair<String, CompactionOperation>> pendingMap = new ExternalSpillableMap<>(
-          maxMemoryForPendingLogCompaction, baseStoreDir, new DefaultSizeEstimator(), new DefaultSizeEstimator<>(),
-          diskMapType, isBitCaskDiskMapCompressionEnabled);
-      pendingMap.putAll(fgIdToPendingLogCompaction);
       return pendingMap;
     } catch (IOException e) {
       throw new RuntimeException(e);
@@ -186,11 +167,6 @@ public class SpillableMapBasedFileSystemView extends HoodieTableFileSystemView {
   @Override
   Stream<Pair<String, CompactionOperation>> fetchPendingCompactionOperations() {
     return ((ExternalSpillableMap) fgIdToPendingCompaction).valueStream();
-  }
-
-  @Override
-  Stream<Pair<String, CompactionOperation>> fetchPendingLogCompactionOperations() {
-    return ((ExternalSpillableMap) fgIdToPendingLogCompaction).valueStream();
   }
 
   @Override

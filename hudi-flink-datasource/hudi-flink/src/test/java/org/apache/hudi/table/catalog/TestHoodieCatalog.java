@@ -18,19 +18,9 @@
 
 package org.apache.hudi.table.catalog;
 
-import org.apache.hudi.common.model.HoodieCommitMetadata;
-import org.apache.hudi.common.model.HoodieReplaceCommitMetadata;
-import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.configuration.FlinkOptions;
-import org.apache.hudi.configuration.HadoopConfigurations;
-import org.apache.hudi.sink.partitioner.profile.WriteProfiles;
-import org.apache.hudi.util.StreamerUtil;
-import org.apache.hudi.utils.TestConfigurations;
-import org.apache.hudi.utils.TestData;
 
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.core.fs.Path;
 import org.apache.flink.table.api.DataTypes;
 import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.Schema;
@@ -40,7 +30,6 @@ import org.apache.flink.table.api.internal.TableEnvironmentImpl;
 import org.apache.flink.table.catalog.CatalogBaseTable;
 import org.apache.flink.table.catalog.CatalogDatabase;
 import org.apache.flink.table.catalog.CatalogDatabaseImpl;
-import org.apache.flink.table.catalog.CatalogPartitionSpec;
 import org.apache.flink.table.catalog.CatalogTable;
 import org.apache.flink.table.catalog.Column;
 import org.apache.flink.table.catalog.ObjectPath;
@@ -50,11 +39,9 @@ import org.apache.flink.table.catalog.UniqueConstraint;
 import org.apache.flink.table.catalog.exceptions.CatalogException;
 import org.apache.flink.table.catalog.exceptions.DatabaseAlreadyExistException;
 import org.apache.flink.table.catalog.exceptions.DatabaseNotExistException;
-import org.apache.flink.table.catalog.exceptions.PartitionNotExistException;
 import org.apache.flink.table.catalog.exceptions.TableAlreadyExistException;
 import org.apache.flink.table.catalog.exceptions.TableNotExistException;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -69,12 +56,8 @@ import java.util.stream.Collectors;
 
 import static org.apache.hudi.table.catalog.CatalogOptions.CATALOG_PATH;
 import static org.apache.hudi.table.catalog.CatalogOptions.DEFAULT_DATABASE;
-import static org.hamcrest.CoreMatchers.instanceOf;
-import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -135,7 +118,6 @@ public class TestHoodieCatalog {
   );
 
   private TableEnvironment streamTableEnv;
-  private String catalogPathStr;
   private HoodieCatalog catalog;
 
   @TempDir
@@ -150,18 +132,10 @@ public class TestHoodieCatalog {
     File testDb = new File(tempFile, TEST_DEFAULT_DATABASE);
     testDb.mkdir();
     Map<String, String> catalogOptions = new HashMap<>();
-    catalogPathStr = tempFile.getAbsolutePath();
-    catalogOptions.put(CATALOG_PATH.key(), catalogPathStr);
+    catalogOptions.put(CATALOG_PATH.key(), tempFile.getAbsolutePath());
     catalogOptions.put(DEFAULT_DATABASE.key(), TEST_DEFAULT_DATABASE);
     catalog = new HoodieCatalog("hudi", Configuration.fromMap(catalogOptions));
     catalog.open();
-  }
-
-  @AfterEach
-  void afterEach() {
-    if (catalog != null) {
-      catalog.close();
-    }
   }
 
   @Test
@@ -274,7 +248,7 @@ public class TestHoodieCatalog {
   }
 
   @Test
-  public void testDropTable() throws Exception {
+  public void dropTable() throws Exception {
     ObjectPath tablePath = new ObjectPath(TEST_DEFAULT_DATABASE, "tb1");
     // create table
     catalog.createTable(tablePath, EXPECTED_CATALOG_TABLE, true);
@@ -286,38 +260,5 @@ public class TestHoodieCatalog {
     // drop non-exist table
     assertThrows(TableNotExistException.class,
         () -> catalog.dropTable(new ObjectPath(TEST_DEFAULT_DATABASE, "non_exist"), false));
-  }
-
-  @Test
-  public void testDropPartition() throws Exception {
-    ObjectPath tablePath = new ObjectPath(TEST_DEFAULT_DATABASE, "tb1");
-    // create table
-    catalog.createTable(tablePath, EXPECTED_CATALOG_TABLE, true);
-
-    CatalogPartitionSpec partitionSpec = new CatalogPartitionSpec(new HashMap<String, String>() {
-      {
-        put("partition", "par1");
-      }
-    });
-    // drop non-exist partition
-    assertThrows(PartitionNotExistException.class,
-        () -> catalog.dropPartition(tablePath, partitionSpec, false));
-
-    String tablePathStr = catalog.inferTablePath(catalogPathStr, tablePath);
-    Configuration flinkConf = TestConfigurations.getDefaultConf(tablePathStr);
-    HoodieTableMetaClient metaClient = StreamerUtil.createMetaClient(tablePathStr, HadoopConfigurations.getHadoopConf(flinkConf));
-    TestData.writeData(TestData.DATA_SET_INSERT, flinkConf);
-    assertTrue(catalog.partitionExists(tablePath, partitionSpec));
-
-    // drop partition 'par1'
-    catalog.dropPartition(tablePath, partitionSpec, false);
-
-    HoodieInstant latestInstant = metaClient.getActiveTimeline().filterCompletedInstants().lastInstant().orElse(null);
-    assertNotNull(latestInstant, "Delete partition commit should be completed");
-    HoodieCommitMetadata commitMetadata = WriteProfiles.getCommitMetadata("tb1", new Path(tablePathStr), latestInstant, metaClient.getActiveTimeline());
-    assertThat(commitMetadata, instanceOf(HoodieReplaceCommitMetadata.class));
-    HoodieReplaceCommitMetadata replaceCommitMetadata = (HoodieReplaceCommitMetadata) commitMetadata;
-    assertThat(replaceCommitMetadata.getPartitionToReplaceFileIds().size(), is(1));
-    assertFalse(catalog.partitionExists(tablePath, partitionSpec));
   }
 }

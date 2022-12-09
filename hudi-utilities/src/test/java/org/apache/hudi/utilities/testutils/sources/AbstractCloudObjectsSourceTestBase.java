@@ -54,7 +54,7 @@ public abstract class AbstractCloudObjectsSourceTestBase extends UtilitiesTestBa
 
   @BeforeAll
   public static void initClass() throws Exception {
-    UtilitiesTestBase.initTestServices();
+    UtilitiesTestBase.initClass();
   }
 
   @AfterAll

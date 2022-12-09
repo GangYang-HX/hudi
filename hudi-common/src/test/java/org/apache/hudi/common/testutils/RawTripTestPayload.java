@@ -188,12 +188,4 @@ public class RawTripTestPayload implements HoodieRecordPayload<RawTripTestPayloa
     }
   }
 
-  public RawTripTestPayload clone() {
-    try {
-      return new RawTripTestPayload(unCompressData(jsonDataCompressed), rowKey, partitionPath, null);
-    } catch (IOException e) {
-      return null;
-    }
-  }
-
 }

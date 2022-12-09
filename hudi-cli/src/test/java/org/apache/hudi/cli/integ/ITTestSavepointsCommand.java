@@ -21,8 +21,7 @@ package org.apache.hudi.cli.integ;
 import org.apache.hadoop.fs.Path;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.commands.TableCommand;
-import org.apache.hudi.cli.testutils.HoodieCLIIntegrationTestBase;
-import org.apache.hudi.cli.testutils.ShellEvaluationResultUtil;
+import org.apache.hudi.cli.testutils.AbstractShellIntegrationTest;
 import org.apache.hudi.client.common.HoodieSparkEngineContext;
 import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -37,9 +36,7 @@ import org.apache.hudi.metadata.HoodieTableMetadata;
 import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.io.IOException;
 
@@ -54,11 +51,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * A command use SparkLauncher need load jars under lib which generate during mvn package.
  * Use integration test instead of unit test.
  */
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
-public class ITTestSavepointsCommand extends HoodieCLIIntegrationTestBase {
+public class ITTestSavepointsCommand extends AbstractShellIntegrationTest {
 
-  @Autowired
-  private Shell shell;
   private String tablePath;
 
   @BeforeEach
@@ -84,13 +78,13 @@ public class ITTestSavepointsCommand extends HoodieCLIIntegrationTestBase {
     }
 
     String savepoint = "102";
-    Object result = shell.evaluate(() ->
-            String.format("savepoint create --commit %s --sparkMaster %s", savepoint, "local"));
+    CommandResult cr = getShell().executeCommand(
+        String.format("savepoint create --commit %s --sparkMaster %s", savepoint, "local"));
 
     assertAll("Command run failed",
-        () -> assertTrue(ShellEvaluationResultUtil.isSuccess(result)),
+        () -> assertTrue(cr.isSuccess()),
         () -> assertEquals(
-            String.format("The commit \"%s\" has been savepointed.", savepoint), result.toString()));
+            String.format("The commit \"%s\" has been savepointed.", savepoint), cr.getResult().toString()));
 
     // there is 1 savepoint instant
     HoodieActiveTimeline timeline = HoodieCLI.getTableMetaClient().getActiveTimeline();
@@ -112,13 +106,13 @@ public class ITTestSavepointsCommand extends HoodieCLIIntegrationTestBase {
     String savepoint = "102";
     HoodieTestDataGenerator.createSavepointFile(tablePath, savepoint, jsc.hadoopConfiguration());
 
-    Object result = shell.evaluate(() ->
-            String.format("savepoint rollback --savepoint %s --sparkMaster %s", savepoint, "local"));
+    CommandResult cr = getShell().executeCommand(
+        String.format("savepoint rollback --savepoint %s --sparkMaster %s", savepoint, "local"));
 
     assertAll("Command run failed",
-        () -> assertTrue(ShellEvaluationResultUtil.isSuccess(result)),
+        () -> assertTrue(cr.isSuccess()),
         () -> assertEquals(
-            String.format("Savepoint \"%s\" rolled back", savepoint), result.toString()));
+            String.format("Savepoint \"%s\" rolled back", savepoint), cr.getResult().toString()));
 
     // there is 1 restore instant
     HoodieActiveTimeline timeline = HoodieCLI.getTableMetaClient().getActiveTimeline();
@@ -145,7 +139,11 @@ public class ITTestSavepointsCommand extends HoodieCLIIntegrationTestBase {
     HoodieTestDataGenerator.createSavepointFile(tablePath, savepoint, jsc.hadoopConfiguration());
 
     // re-bootstrap metadata table
-    Path metadataTableBasePath = new Path(HoodieTableMetadata.getMetadataTableBasePath(HoodieCLI.basePath));
+    // delete first
+    String basePath = metaClient.getBasePath();
+    Path metadataTableBasePath = new Path(HoodieTableMetadata.getMetadataTableBasePath(basePath));
+    metaClient.getFs().delete(metadataTableBasePath, true);
+
     // then bootstrap metadata table at instant 104
     HoodieWriteConfig writeConfig = HoodieWriteConfig.newBuilder().withPath(HoodieCLI.basePath)
         .withMetadataConfig(HoodieMetadataConfig.newBuilder().enable(true).build()).build();
@@ -154,13 +152,13 @@ public class ITTestSavepointsCommand extends HoodieCLIIntegrationTestBase {
     assertTrue(HoodieCLI.fs.exists(metadataTableBasePath));
 
     // roll back to savepoint
-    Object result = shell.evaluate(() ->
-            String.format("savepoint rollback --savepoint %s --sparkMaster %s", savepoint, "local"));
+    CommandResult cr = getShell().executeCommand(
+        String.format("savepoint rollback --savepoint %s --sparkMaster %s", savepoint, "local"));
 
     assertAll("Command run failed",
-        () -> assertTrue(ShellEvaluationResultUtil.isSuccess(result)),
+        () -> assertTrue(cr.isSuccess()),
         () -> assertEquals(
-            String.format("Savepoint \"%s\" rolled back", savepoint), result.toString()));
+            String.format("Savepoint \"%s\" rolled back", savepoint), cr.getResult().toString()));
 
     // there is 1 restore instant
     HoodieActiveTimeline timeline = HoodieCLI.getTableMetaClient().getActiveTimeline();
@@ -193,13 +191,13 @@ public class ITTestSavepointsCommand extends HoodieCLIIntegrationTestBase {
     HoodieActiveTimeline timeline = HoodieCLI.getTableMetaClient().getActiveTimeline();
     assertEquals(2, timeline.getSavePointTimeline().countInstants(), "There should 2 instants.");
 
-    Object result = shell.evaluate(() ->
-            String.format("savepoint delete --commit %s --sparkMaster %s", savepoint1, "local"));
+    CommandResult cr = getShell().executeCommand(
+        String.format("savepoint delete --commit %s --sparkMaster %s", savepoint1, "local"));
 
     assertAll("Command run failed",
-        () -> assertTrue(ShellEvaluationResultUtil.isSuccess(result)),
+        () -> assertTrue(cr.isSuccess()),
         () -> assertEquals(
-            String.format("Savepoint \"%s\" deleted.", savepoint1),result.toString()));
+            String.format("Savepoint \"%s\" deleted.", savepoint1), cr.getResult().toString()));
 
     // reload timeline
     timeline = timeline.reload();

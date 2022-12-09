@@ -52,12 +52,12 @@ public class DistributedRegistry extends AccumulatorV2<Map<String, Long>, Map<St
 
   @Override
   public void increment(String name) {
-    counters.merge(name,  1L, Long::sum);
+    counters.merge(name,  1L, (oldValue, newValue) -> oldValue + newValue);
   }
 
   @Override
   public void add(String name, long value) {
-    counters.merge(name,  value, Long::sum);
+    counters.merge(name,  value, (oldValue, newValue) -> oldValue + newValue);
   }
 
   @Override
@@ -80,13 +80,13 @@ public class DistributedRegistry extends AccumulatorV2<Map<String, Long>, Map<St
 
   @Override
   public void add(Map<String, Long> arg) {
-    arg.forEach(this::add);
+    arg.forEach((key, value) -> add(key, value));
   }
 
   @Override
   public AccumulatorV2<Map<String, Long>, Map<String, Long>> copy() {
     DistributedRegistry registry = new DistributedRegistry(name);
-    counters.forEach(registry::add);
+    counters.forEach((key, value) -> registry.add(key, value));
     return registry;
   }
 
@@ -97,7 +97,7 @@ public class DistributedRegistry extends AccumulatorV2<Map<String, Long>, Map<St
 
   @Override
   public void merge(AccumulatorV2<Map<String, Long>, Map<String, Long>> acc) {
-    acc.value().forEach(this::add);
+    acc.value().forEach((key, value) -> add(key, value));
   }
 
   @Override

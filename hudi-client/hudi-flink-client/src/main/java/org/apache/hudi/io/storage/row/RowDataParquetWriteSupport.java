@@ -36,12 +36,14 @@ import java.util.HashMap;
 public class RowDataParquetWriteSupport extends WriteSupport<RowData> {
 
   private final RowType rowType;
+  private final boolean utcTimestamp;
   private final MessageType schema;
   private ParquetRowDataWriter writer;
 
-  public RowDataParquetWriteSupport(RowType rowType) {
+  public RowDataParquetWriteSupport(RowType rowType, boolean utcTimestamp) {
     super();
     this.rowType = rowType;
+    this.utcTimestamp = utcTimestamp;
     this.schema = ParquetSchemaConverter.convertToParquetMessageType("flink_schema", rowType);
   }
 
@@ -53,7 +55,7 @@ public class RowDataParquetWriteSupport extends WriteSupport<RowData> {
   @Override
   public void prepareForWrite(RecordConsumer recordConsumer) {
     // should make the utc timestamp configurable
-    this.writer = new ParquetRowDataWriter(recordConsumer, rowType, schema, true);
+    this.writer = new ParquetRowDataWriter(recordConsumer, rowType, schema, utcTimestamp);
   }
 
   @Override

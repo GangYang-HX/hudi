@@ -18,6 +18,11 @@
 
 package org.apache.hudi.table;
 
+import org.apache.avro.Schema;
+import org.apache.avro.specific.SpecificRecordBase;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.HoodieCleanMetadata;
 import org.apache.hudi.avro.model.HoodieCleanerPlan;
@@ -78,12 +83,6 @@ import org.apache.hudi.table.marker.WriteMarkers;
 import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.table.storage.HoodieLayoutFactory;
 import org.apache.hudi.table.storage.HoodieStorageLayout;
-
-import org.apache.avro.Schema;
-import org.apache.avro.specific.SpecificRecordBase;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -98,11 +97,11 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static org.apache.hudi.avro.AvroSchemaUtils.isSchemaCompatible;
 import static org.apache.hudi.common.table.HoodieTableConfig.TABLE_METADATA_PARTITIONS;
 import static org.apache.hudi.common.util.StringUtils.EMPTY_STRING;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.deleteMetadataPartition;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.deleteMetadataTable;
+import static org.apache.hudi.metadata.HoodieTableMetadataUtil.getCompletedMetadataPartitions;
 import static org.apache.hudi.metadata.HoodieTableMetadataUtil.metadataPartitionExists;
 
 /**
@@ -211,7 +210,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
    * @param partitions   {@link List} of partition to be deleted
    * @return HoodieWriteMetadata
    */
-  public abstract HoodieWriteMetadata<O> deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions);
+  public abstract HoodieWriteMetadata deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions);
 
   /**
    * Upserts the given prepared records into the Hoodie table, at the supplied instantTime.
@@ -330,7 +329,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
    * Get only the inflights (no-completed) commit timeline.
    */
   public HoodieTimeline getPendingCommitTimeline() {
-    return metaClient.getCommitsTimeline().filterPendingExcludingMajorAndMinorCompaction();
+    return metaClient.getCommitsTimeline().filterPendingExcludingCompaction();
   }
 
   /**
@@ -369,10 +368,10 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
   }
 
   /**
-   * Get the list of savepoint timestamps in this table.
+   * Get the list of savepoints in this table.
    */
-  public Set<String> getSavepointTimestamps() {
-    return getCompletedSavepointTimeline().getInstantsAsStream().map(HoodieInstant::getTimestamp).collect(Collectors.toSet());
+  public List<String> getSavepoints() {
+    return getCompletedSavepointTimeline().getInstants().map(HoodieInstant::getTimestamp).collect(Collectors.toList());
   }
 
   public HoodieActiveTimeline getActiveTimeline() {
@@ -410,31 +409,6 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
    */
   public abstract HoodieWriteMetadata<O> compact(HoodieEngineContext context,
                                                  String compactionInstantTime);
-
-  /**
-   * Schedule log compaction for the instant time.
-   *
-   * @param context HoodieEngineContext
-   * @param instantTime Instant Time for scheduling log compaction
-   * @param extraMetadata additional metadata to write into plan
-   * @return
-   */
-  public Option<HoodieCompactionPlan> scheduleLogCompaction(HoodieEngineContext context,
-                                                            String instantTime,
-                                                            Option<Map<String, String>> extraMetadata) {
-    throw new UnsupportedOperationException("Log compaction is not supported for this table type");
-  }
-
-  /**
-   * Run Log Compaction on the table. Log Compaction arranges the data so that it is optimized for data access.
-   *
-   * @param context               HoodieEngineContext
-   * @param logCompactionInstantTime Instant Time
-   */
-  public HoodieWriteMetadata<O> logCompact(HoodieEngineContext context,
-                                           String logCompactionInstantTime) {
-    throw new UnsupportedOperationException("Log compaction is not supported for this table type");
-  }
 
   /**
    * Schedule clustering for the instant time.
@@ -566,20 +540,18 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
     rollbackInflightCompaction(inflightInstant, s -> Option.empty());
   }
 
-  public void rollbackInflightLogCompaction(HoodieInstant inflightInstant) {
-    rollbackInflightLogCompaction(inflightInstant, s -> Option.empty());
-  }
-
   /**
    * Rollback failed compactions. Inflight rollbacks for compactions revert the .inflight file
    * to the .requested file.
    *
    * @param inflightInstant Inflight Compaction Instant
    */
-  public void rollbackInflightCompaction(HoodieInstant inflightInstant,
-                                         Function<String, Option<HoodiePendingRollbackInfo>> getPendingRollbackInstantFunc) {
-    ValidationUtils.checkArgument(inflightInstant.getAction().equals(HoodieTimeline.COMPACTION_ACTION));
-    rollbackInflightInstant(inflightInstant, getPendingRollbackInstantFunc);
+  public void rollbackInflightCompaction(HoodieInstant inflightInstant, Function<String, Option<HoodiePendingRollbackInfo>> getPendingRollbackInstantFunc) {
+    final String commitTime = getPendingRollbackInstantFunc.apply(inflightInstant.getTimestamp()).map(entry
+        -> entry.getRollbackInstant().getTimestamp()).orElse(HoodieActiveTimeline.createNewInstantTime());
+    scheduleRollback(context, commitTime, inflightInstant, false, config.shouldRollbackUsingMarkers());
+    rollback(context, commitTime, inflightInstant, false, false);
+    getActiveTimeline().revertCompactionInflightToRequested(inflightInstant);
   }
 
   /**
@@ -602,24 +574,12 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
    */
   private void rollbackInflightInstant(HoodieInstant inflightInstant,
                                        Function<String, Option<HoodiePendingRollbackInfo>> getPendingRollbackInstantFunc) {
-    final String commitTime = getPendingRollbackInstantFunc.apply(inflightInstant.getTimestamp()).map(entry
-        -> entry.getRollbackInstant().getTimestamp()).orElse(HoodieActiveTimeline.createNewInstantTime());
+    final String commitTime = getPendingRollbackInstantFunc.apply(inflightInstant.getTimestamp())
+            .map(entry -> entry.getRollbackInstant().getTimestamp())
+            .orElse(HoodieActiveTimeline.createNewInstantTime());
     scheduleRollback(context, commitTime, inflightInstant, false, config.shouldRollbackUsingMarkers());
     rollback(context, commitTime, inflightInstant, false, false);
     getActiveTimeline().revertInstantFromInflightToRequested(inflightInstant);
-  }
-
-  /**
-   * Rollback failed compactions. Inflight rollbacks for compactions revert the .inflight file
-   * to the .requested file.
-   *
-   * @param inflightInstant Inflight Compaction Instant
-   */
-  public void rollbackInflightLogCompaction(HoodieInstant inflightInstant, Function<String, Option<HoodiePendingRollbackInfo>> getPendingRollbackInstantFunc) {
-    final String commitTime = getPendingRollbackInstantFunc.apply(inflightInstant.getTimestamp()).map(entry
-        -> entry.getRollbackInstant().getTimestamp()).orElse(HoodieActiveTimeline.createNewInstantTime());
-    scheduleRollback(context, commitTime, inflightInstant, false, config.shouldRollbackUsingMarkers());
-    rollback(context, commitTime, inflightInstant, true, false);
   }
 
   /**
@@ -635,7 +595,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
 
   private void deleteInvalidFilesByPartitions(HoodieEngineContext context, Map<String, List<Pair<String, String>>> invalidFilesByPartition) {
     // Now delete partially written files
-    context.setJobStatus(this.getClass().getSimpleName(), "Delete invalid files generated during the write operation: " + config.getTableName());
+    context.setJobStatus(this.getClass().getSimpleName(), "Delete invalid files generated during the write operation");
     context.map(new ArrayList<>(invalidFilesByPartition.values()), partitionWithFileList -> {
       final FileSystem fileSystem = metaClient.getFs();
       LOG.info("Deleting invalid data files=" + partitionWithFileList);
@@ -698,7 +658,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
       invalidDataPaths.removeAll(validDataPaths);
 
       if (!invalidDataPaths.isEmpty()) {
-        LOG.info("Removing duplicate data files created due to task retries before committing. Paths=" + invalidDataPaths);
+        LOG.info("Removing duplicate data files created due to spark retries before committing. Paths=" + invalidDataPaths);
         Map<String, List<Pair<String, String>>> invalidPathsByPartition = invalidDataPaths.stream()
             .map(dp -> Pair.of(new Path(basePath, dp).getParent().toString(), new Path(basePath, dp).toString()))
             .collect(Collectors.groupingBy(Pair::getKey));
@@ -711,7 +671,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
         }
 
         // Now delete partially written files
-        context.setJobStatus(this.getClass().getSimpleName(), "Delete all partially written files: " + config.getTableName());
+        context.setJobStatus(this.getClass().getSimpleName(), "Delete all partially written files");
         deleteInvalidFilesByPartitions(context, invalidPathsByPartition);
 
         // Now ensure the deleted files disappear
@@ -734,7 +694,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
    */
   private void waitForAllFiles(HoodieEngineContext context, Map<String, List<Pair<String, String>>> groupByPartition, FileVisibility visibility) {
     // This will either ensure all files to be deleted are present.
-    context.setJobStatus(this.getClass().getSimpleName(), "Wait for all files to appear/disappear: " + config.getTableName());
+    context.setJobStatus(this.getClass().getSimpleName(), "Wait for all files to appear/disappear");
     boolean checkPassed =
         context.map(new ArrayList<>(groupByPartition.entrySet()), partitionWithFileList -> waitForCondition(partitionWithFileList.getKey(),
             partitionWithFileList.getValue().stream(), visibility), config.getFinalizeWriteParallelism())
@@ -782,7 +742,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
    */
   private void validateSchema() throws HoodieUpsertException, HoodieInsertException {
 
-    if (!config.shouldValidateAvroSchema() || getActiveTimeline().getCommitsTimeline().filterCompletedInstants().empty()) {
+    if (!config.getAvroSchemaValidate() || getActiveTimeline().getCommitsTimeline().filterCompletedInstants().empty()) {
       // Check not required
       return;
     }
@@ -794,7 +754,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
       TableSchemaResolver schemaResolver = new TableSchemaResolver(getMetaClient());
       writerSchema = HoodieAvroUtils.createHoodieWriteSchema(config.getSchema());
       tableSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaResolver.getTableAvroSchemaWithoutMetadataFields());
-      isValid = isSchemaCompatible(tableSchema, writerSchema);
+      isValid = TableSchemaResolver.isSchemaCompatible(tableSchema, writerSchema);
     } catch (Exception e) {
       throw new HoodieException("Failed to read schema/check compatibility for base path " + metaClient.getBasePath(), e);
     }
@@ -809,7 +769,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
     try {
       validateSchema();
     } catch (HoodieException e) {
-      throw new HoodieUpsertException("Failed upsert schema compatibility check", e);
+      throw new HoodieUpsertException("Failed upsert schema compatibility check.", e);
     }
   }
 
@@ -817,7 +777,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
     try {
       validateSchema();
     } catch (HoodieException e) {
-      throw new HoodieInsertException("Failed insert schema compatibility check", e);
+      throw new HoodieInsertException("Failed insert schema compability check.", e);
     }
   }
 
@@ -942,7 +902,7 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
         return false;
     }
     return metadataIndexDisabled
-        && metaClient.getTableConfig().getMetadataPartitions().contains(partitionType.getPartitionPath());
+        && getCompletedMetadataPartitions(metaClient.getTableConfig()).contains(partitionType.getPartitionPath());
   }
 
   private boolean shouldExecuteMetadataTableDeletion() {
@@ -954,22 +914,24 @@ public abstract class HoodieTable<T extends HoodieRecordPayload, I, K, O> implem
     // partitions are ready to use
     return !HoodieTableMetadata.isMetadataTable(metaClient.getBasePath())
         && !config.isMetadataTableEnabled()
-        && !metaClient.getTableConfig().getMetadataPartitions().isEmpty();
+        && (!metaClient.getTableConfig().contains(TABLE_METADATA_PARTITIONS)
+        || !metaClient.getTableConfig().getMetadataPartitions().isEmpty());
   }
 
   /**
    * Clears hoodie.table.metadata.partitions in hoodie.properties
    */
   private void clearMetadataTablePartitionsConfig(Option<MetadataPartitionType> partitionType, boolean clearAll) {
-    Set<String> partitions = metaClient.getTableConfig().getMetadataPartitions();
-    if (clearAll && partitions.size() > 0) {
+    if (clearAll) {
       LOG.info("Clear hoodie.table.metadata.partitions in hoodie.properties");
       metaClient.getTableConfig().setValue(TABLE_METADATA_PARTITIONS.key(), EMPTY_STRING);
       HoodieTableConfig.update(metaClient.getFs(), new Path(metaClient.getMetaPath()), metaClient.getTableConfig().getProps());
-    } else if (partitions.remove(partitionType.get().getPartitionPath())) {
-      metaClient.getTableConfig().setValue(HoodieTableConfig.TABLE_METADATA_PARTITIONS.key(), String.join(",", partitions));
-      HoodieTableConfig.update(metaClient.getFs(), new Path(metaClient.getMetaPath()), metaClient.getTableConfig().getProps());
+      return;
     }
+    Set<String> completedPartitions = getCompletedMetadataPartitions(metaClient.getTableConfig());
+    completedPartitions.remove(partitionType.get().getPartitionPath());
+    metaClient.getTableConfig().setValue(HoodieTableConfig.TABLE_METADATA_PARTITIONS.key(), String.join(",", completedPartitions));
+    HoodieTableConfig.update(metaClient.getFs(), new Path(metaClient.getMetaPath()), metaClient.getTableConfig().getProps());
   }
 
   public HoodieTableMetadata getMetadataTable() {

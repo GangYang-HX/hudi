@@ -20,7 +20,6 @@ package org.apache.hudi.cli.commands;
 
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
-import org.apache.hudi.cli.testutils.MockCommandLineInput;
 import org.apache.hudi.cli.utils.SparkTempViewProvider;
 import org.apache.hudi.cli.utils.TempViewProvider;
 import org.apache.hudi.exception.HoodieException;
@@ -29,9 +28,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,11 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("functional")
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
 public class TestTempViewCommand extends CLIFunctionalTestHarness {
 
-  @Autowired
-  private Shell shell;
   private TempViewProvider tempViewProvider;
   private final String tableName = tableName();
 
@@ -69,28 +63,26 @@ public class TestTempViewCommand extends CLIFunctionalTestHarness {
 
   @Test
   public void testQueryWithException() {
-    Object result = shell.evaluate((MockCommandLineInput) () ->
-            String.format("temp query --sql 'select * from %s'", "table_non_exist"));
-    assertEquals(TempViewCommand.QUERY_FAIL, result.toString());
+    CommandResult cr = shell().executeCommand(String.format("temp query --sql 'select * from %s'", "table_non_exist"));
+    assertEquals(TempViewCommand.QUERY_FAIL, cr.getResult().toString());
   }
 
   @Test
   public void testQuery() {
-    Object result = shell.evaluate((MockCommandLineInput) () ->
-            String.format("temp query --sql 'select * from %s'", tableName));
-    assertEquals(TempViewCommand.QUERY_SUCCESS, result.toString());
+    CommandResult cr = shell().executeCommand(String.format("temp query --sql 'select * from %s'", tableName));
+    assertEquals(TempViewCommand.QUERY_SUCCESS, cr.getResult().toString());
   }
 
   @Test
   public void testShowAll() {
-    Object result = shell.evaluate(() -> "temps show");
-    assertEquals(TempViewCommand.SHOW_SUCCESS, result.toString());
+    CommandResult cr = shell().executeCommand("temps show");
+    assertEquals(TempViewCommand.SHOW_SUCCESS, cr.getResult().toString());
   }
 
   @Test
   public void testDelete() {
-    Object result = shell.evaluate(() -> String.format("temp delete --view %s", tableName));
-    assertTrue(result.toString().endsWith("successfully!"));
+    CommandResult cr = shell().executeCommand(String.format("temp delete --view %s", tableName));
+    assertTrue(cr.getResult().toString().endsWith("successfully!"));
 
     // after delete, we can not access table yet.
     assertThrows(HoodieException.class, () -> HoodieCLI.getTempViewProvider().runQuery("select * from " + tableName));

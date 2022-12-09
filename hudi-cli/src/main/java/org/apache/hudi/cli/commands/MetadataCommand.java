@@ -27,7 +27,6 @@ import org.apache.hudi.common.config.HoodieMetadataConfig;
 import org.apache.hudi.common.engine.HoodieLocalEngineContext;
 import org.apache.hudi.common.util.HoodieTimer;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.metadata.HoodieBackedTableMetadata;
@@ -36,12 +35,13 @@ import org.apache.hudi.metadata.SparkHoodieBackedTableMetadataWriter;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.springframework.shell.standard.ShellComponent;
-import org.springframework.shell.standard.ShellMethod;
-import org.springframework.shell.standard.ShellOption;
+import org.springframework.shell.core.CommandMarker;
+import org.springframework.shell.core.annotation.CliCommand;
+import org.springframework.shell.core.annotation.CliOption;
+import org.springframework.stereotype.Component;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -70,8 +70,8 @@ import java.util.Set;
  * Run metadata commands
  * > metadata list-partitions
  */
-@ShellComponent
-public class MetadataCommand {
+@Component
+public class MetadataCommand implements CommandMarker {
 
   private static final Logger LOG = LogManager.getLogger(MetadataCommand.class);
   private static String metadataBaseDirectory;
@@ -97,9 +97,9 @@ public class MetadataCommand {
     return HoodieTableMetadata.getMetadataTableBasePath(tableBasePath);
   }
 
-  @ShellMethod(key = "metadata set", value = "Set options for Metadata Table")
-  public String set(@ShellOption(value = {"--metadataDir"},
-      help = "Directory to read/write metadata table (can be different from dataset)", defaultValue = "") final String metadataDir) {
+  @CliCommand(value = "metadata set", help = "Set options for Metadata Table")
+  public String set(@CliOption(key = {"metadataDir"},
+      help = "Directory to read/write metadata table (can be different from dataset)", unspecifiedDefaultValue = "") final String metadataDir) {
     if (!metadataDir.isEmpty()) {
       setMetadataBaseDirectory(metadataDir);
     }
@@ -107,9 +107,9 @@ public class MetadataCommand {
     return "Ok";
   }
 
-  @ShellMethod(key = "metadata create", value = "Create the Metadata Table if it does not exist")
+  @CliCommand(value = "metadata create", help = "Create the Metadata Table if it does not exist")
   public String create(
-      @ShellOption(value = "--sparkMaster", defaultValue = SparkUtil.DEFAULT_SPARK_MASTER, help = "Spark master") final String master
+      @CliOption(key = "sparkMaster", unspecifiedDefaultValue = SparkUtil.DEFAULT_SPARK_MASTER, help = "Spark master") final String master
   ) throws IOException {
     HoodieCLI.getTableMetaClient();
     Path metadataPath = new Path(getMetadataTableBasePath(HoodieCLI.basePath));
@@ -123,14 +123,14 @@ public class MetadataCommand {
       HoodieCLI.fs.mkdirs(metadataPath);
     }
 
-    HoodieTimer timer = HoodieTimer.start();
+    HoodieTimer timer = new HoodieTimer().startTimer();
     HoodieWriteConfig writeConfig = getWriteConfig();
     initJavaSparkContext(Option.of(master));
     SparkHoodieBackedTableMetadataWriter.create(HoodieCLI.conf, writeConfig, new HoodieSparkEngineContext(jsc));
     return String.format("Created Metadata Table in %s (duration=%.2f secs)", metadataPath, timer.endTimer() / 1000.0);
   }
 
-  @ShellMethod(key = "metadata delete", value = "Remove the Metadata Table")
+  @CliCommand(value = "metadata delete", help = "Remove the Metadata Table")
   public String delete() throws Exception {
     HoodieCLI.getTableMetaClient();
     Path metadataPath = new Path(getMetadataTableBasePath(HoodieCLI.basePath));
@@ -146,10 +146,10 @@ public class MetadataCommand {
     return String.format("Removed Metadata Table from %s", metadataPath);
   }
 
-  @ShellMethod(key = "metadata init", value = "Update the metadata table from commits since the creation")
-  public String init(@ShellOption(value = "--sparkMaster", defaultValue = SparkUtil.DEFAULT_SPARK_MASTER, help = "Spark master") final String master,
-                     @ShellOption(value = {"--readonly"}, defaultValue = "false",
-                         help = "Open in read-only mode") final boolean readOnly) throws Exception {
+  @CliCommand(value = "metadata init", help = "Update the metadata table from commits since the creation")
+  public String init(@CliOption(key = "sparkMaster", unspecifiedDefaultValue = SparkUtil.DEFAULT_SPARK_MASTER, help = "Spark master") final String master,
+                     @CliOption(key = {"readonly"}, unspecifiedDefaultValue = "false",
+      help = "Open in read-only mode") final boolean readOnly) throws Exception {
     HoodieCLI.getTableMetaClient();
     Path metadataPath = new Path(getMetadataTableBasePath(HoodieCLI.basePath));
     try {
@@ -159,7 +159,7 @@ public class MetadataCommand {
       throw new RuntimeException("Metadata directory (" + metadataPath.toString() + ") does not exist.");
     }
 
-    HoodieTimer timer = HoodieTimer.start();
+    HoodieTimer timer = new HoodieTimer().startTimer();
     if (!readOnly) {
       HoodieWriteConfig writeConfig = getWriteConfig();
       initJavaSparkContext(Option.of(master));
@@ -170,7 +170,7 @@ public class MetadataCommand {
     return String.format(action + " Metadata Table in %s (duration=%.2fsec)", metadataPath, (timer.endTimer()) / 1000.0);
   }
 
-  @ShellMethod(key = "metadata stats", value = "Print stats about the metadata")
+  @CliCommand(value = "metadata stats", help = "Print stats about the metadata")
   public String stats() throws IOException {
     HoodieCLI.getTableMetaClient();
     HoodieMetadataConfig config = HoodieMetadataConfig.newBuilder().enable(true).build();
@@ -193,9 +193,9 @@ public class MetadataCommand {
         false, Integer.MAX_VALUE, false, rows);
   }
 
-  @ShellMethod(key = "metadata list-partitions", value = "List all partitions from metadata")
+  @CliCommand(value = "metadata list-partitions", help = "List all partitions from metadata")
   public String listPartitions(
-      @ShellOption(value = "--sparkMaster", defaultValue = SparkUtil.DEFAULT_SPARK_MASTER, help = "Spark master") final String master
+      @CliOption(key = "sparkMaster", unspecifiedDefaultValue = SparkUtil.DEFAULT_SPARK_MASTER, help = "Spark master") final String master
   ) throws IOException {
     HoodieCLI.getTableMetaClient();
     initJavaSparkContext(Option.of(master));
@@ -207,7 +207,7 @@ public class MetadataCommand {
       return "[ERROR] Metadata Table not enabled/initialized\n\n";
     }
 
-    HoodieTimer timer = HoodieTimer.start();
+    HoodieTimer timer = new HoodieTimer().startTimer();
     List<String> partitions = metadata.getAllPartitionPaths();
     LOG.debug("Took " + timer.endTimer() + " ms");
 
@@ -223,9 +223,9 @@ public class MetadataCommand {
         false, Integer.MAX_VALUE, false, rows);
   }
 
-  @ShellMethod(key = "metadata list-files", value = "Print a list of all files in a partition from the metadata")
+  @CliCommand(value = "metadata list-files", help = "Print a list of all files in a partition from the metadata")
   public String listFiles(
-      @ShellOption(value = {"--partition"}, help = "Name of the partition to list files", defaultValue = "") final String partition) throws IOException {
+      @CliOption(key = {"partition"}, help = "Name of the partition to list files", mandatory = true) final String partition) throws IOException {
     HoodieCLI.getTableMetaClient();
     HoodieMetadataConfig config = HoodieMetadataConfig.newBuilder().enable(true).build();
     HoodieBackedTableMetadata metaReader = new HoodieBackedTableMetadata(
@@ -235,13 +235,8 @@ public class MetadataCommand {
       return "[ERROR] Metadata Table not enabled/initialized\n\n";
     }
 
-    Path partitionPath = new Path(HoodieCLI.basePath);
-    if (!StringUtils.isNullOrEmpty(partition)) {
-      partitionPath = new Path(HoodieCLI.basePath, partition);
-    }
-
-    HoodieTimer timer = HoodieTimer.start();
-    FileStatus[] statuses = metaReader.getAllFilesInPartition(partitionPath);
+    HoodieTimer timer = new HoodieTimer().startTimer();
+    FileStatus[] statuses = metaReader.getAllFilesInPartition(new Path(HoodieCLI.basePath, partition));
     LOG.debug("Took " + timer.endTimer() + " ms");
 
     final List<Comparable[]> rows = new ArrayList<>();
@@ -256,9 +251,9 @@ public class MetadataCommand {
         false, Integer.MAX_VALUE, false, rows);
   }
 
-  @ShellMethod(key = "metadata validate-files", value = "Validate all files in all partitions from the metadata")
+  @CliCommand(value = "metadata validate-files", help = "Validate all files in all partitions from the metadata")
   public String validateFiles(
-      @ShellOption(value = {"--verbose"}, help = "Print all file details", defaultValue = "false") final boolean verbose) throws IOException {
+      @CliOption(key = {"verbose"}, help = "Print all file details", unspecifiedDefaultValue = "false") final boolean verbose) throws IOException {
     HoodieCLI.getTableMetaClient();
     HoodieMetadataConfig config = HoodieMetadataConfig.newBuilder().enable(true).build();
     HoodieBackedTableMetadata metadataReader = new HoodieBackedTableMetadata(
@@ -272,7 +267,7 @@ public class MetadataCommand {
     HoodieBackedTableMetadata fsMetaReader = new HoodieBackedTableMetadata(
         new HoodieLocalEngineContext(HoodieCLI.conf), fsConfig, HoodieCLI.basePath, "/tmp");
 
-    HoodieTimer timer = HoodieTimer.start();
+    HoodieTimer timer = new HoodieTimer().startTimer();
     List<String> metadataPartitions = metadataReader.getAllPartitionPaths();
     LOG.debug("Listing partitions Took " + timer.endTimer() + " ms");
     List<String> fsPartitions = fsMetaReader.getAllPartitionPaths();
@@ -369,7 +364,7 @@ public class MetadataCommand {
 
   private void initJavaSparkContext(Option<String> userDefinedMaster) {
     if (jsc == null) {
-      jsc = SparkUtil.initJavaSparkContext(SparkUtil.getDefaultConf("HoodieCLI", userDefinedMaster));
+      jsc = SparkUtil.initJavaSparkConf(SparkUtil.getDefaultConf("HoodieCLI", userDefinedMaster));
     }
   }
 }

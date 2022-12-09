@@ -189,7 +189,7 @@ public class CompactionTestUtils {
       }
     }).collect(Collectors.toList());
     return new HoodieCompactionPlan(ops.isEmpty() ? null : ops, new HashMap<>(),
-        CompactionUtils.LATEST_COMPACTION_METADATA_VERSION, null, null);
+        CompactionUtils.LATEST_COMPACTION_METADATA_VERSION);
   }
 
   /**

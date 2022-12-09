@@ -49,7 +49,7 @@ import java.util.function.Function;
  * @param <I> input payload data type
  * @param <O> output payload data type
  */
-public class BoundedInMemoryQueue<I, O> implements HoodieMessageQueue<I, O>, Iterable<O> {
+public class BoundedInMemoryQueue<I, O> implements Iterable<O> {
 
   /** Interval used for polling records in the queue. **/
   public static final int RECORD_POLL_INTERVAL_SEC = 1;
@@ -128,15 +128,14 @@ public class BoundedInMemoryQueue<I, O> implements HoodieMessageQueue<I, O>, Ite
    * @param payloadSizeEstimator Payload Size Estimator
    */
   public BoundedInMemoryQueue(final long memoryLimit, final Function<I, O> transformFunction,
-                              final SizeEstimator<O> payloadSizeEstimator) {
+      final SizeEstimator<O> payloadSizeEstimator) {
     this.memoryLimit = memoryLimit;
     this.transformFunction = transformFunction;
     this.payloadSizeEstimator = payloadSizeEstimator;
     this.iterator = new QueueIterator();
   }
 
-  @Override
-  public long size() {
+  public int size() {
     return this.queue.size();
   }
 
@@ -175,7 +174,6 @@ public class BoundedInMemoryQueue<I, O> implements HoodieMessageQueue<I, O>, Ite
    *
    * @param t Item to be queued
    */
-  @Override
   public void insertRecord(I t) throws Exception {
     // If already closed, throw exception
     if (isWriteDone.get()) {
@@ -205,8 +203,7 @@ public class BoundedInMemoryQueue<I, O> implements HoodieMessageQueue<I, O>, Ite
    * Reader interface but never exposed to outside world as this is a single consumer queue. Reading is done through a
    * singleton iterator for this queue.
    */
-  @Override
-  public Option<O> readNextRecord() {
+  private Option<O> readNextRecord() {
     if (this.isReadDone.get()) {
       return Option.empty();
     }
@@ -240,16 +237,9 @@ public class BoundedInMemoryQueue<I, O> implements HoodieMessageQueue<I, O>, Ite
   /**
    * Puts an empty entry to queue to denote termination.
    */
-  @Override
-  public void seal() {
+  public void close() {
     // done queueing records notifying queue-reader.
     isWriteDone.set(true);
-  }
-
-  @Override
-  public void close() {
-    // NOTE: Closing is a no-op to support the 1-sided case, when the queue
-    //       is just populated (for subsequent reading), but never consumed
   }
 
   private void throwExceptionIfFailed() {
@@ -262,17 +252,11 @@ public class BoundedInMemoryQueue<I, O> implements HoodieMessageQueue<I, O>, Ite
   /**
    * API to allow producers and consumer to communicate termination due to failure.
    */
-  @Override
   public void markAsFailed(Throwable e) {
     this.hasFailed.set(e);
     // release the permits so that if the queueing thread is waiting for permits then it will
     // get it.
     this.rateLimiter.release(RECORD_CACHING_LIMIT + 1);
-  }
-
-  @Override
-  public boolean isEmpty() {
-    return this.queue.size() == 0;
   }
 
   @Override

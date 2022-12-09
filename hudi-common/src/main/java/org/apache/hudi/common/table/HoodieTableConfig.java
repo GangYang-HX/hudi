@@ -31,7 +31,6 @@ import org.apache.hudi.common.model.HoodieRecord;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.model.HoodieTimelineTimeZone;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
-import org.apache.hudi.common.table.cdc.HoodieCDCSupplementalLoggingMode;
 import org.apache.hudi.common.table.timeline.HoodieInstantTimeGenerator;
 import org.apache.hudi.common.table.timeline.versioning.TimelineLayoutVersion;
 import org.apache.hudi.common.util.BinaryUtil;
@@ -54,7 +53,6 @@ import org.apache.log4j.Logger;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -127,22 +125,6 @@ public class HoodieTableConfig extends HoodieConfig {
       .noDefaultValue()
       .withDocumentation("Columns used to uniquely identify the table. Concatenated values of these fields are used as "
           + " the record key component of HoodieKey.");
-
-  public static final ConfigProperty<Boolean> CDC_ENABLED = ConfigProperty
-      .key("hoodie.table.cdc.enabled")
-      .defaultValue(false)
-      .withDocumentation("When enable, persist the change data if necessary, and can be queried as a CDC query mode.");
-
-  public static final ConfigProperty<String> CDC_SUPPLEMENTAL_LOGGING_MODE = ConfigProperty
-      .key("hoodie.table.cdc.supplemental.logging.mode")
-      .defaultValue(HoodieCDCSupplementalLoggingMode.OP_KEY.getValue())
-      .withValidValues(
-          HoodieCDCSupplementalLoggingMode.OP_KEY.getValue(),
-          HoodieCDCSupplementalLoggingMode.WITH_BEFORE.getValue(),
-          HoodieCDCSupplementalLoggingMode.WITH_BEFORE_AFTER.getValue())
-      .withDocumentation("When 'cdc_op_key' persist the 'op' and the record key only,"
-          + " when 'cdc_data_before' persist the additional 'before' image ,"
-          + " and when 'cdc_data_before_after', persist the 'before' and 'after' at the same time.");
 
   public static final ConfigProperty<String> CREATE_SCHEMA = ConfigProperty
       .key("hoodie.table.create.schema")
@@ -252,11 +234,6 @@ public class HoodieTableConfig extends HoodieConfig {
       .withDocumentation("Comma-separated list of metadata partitions that have been completely built and in-sync with data table. "
           + "These partitions are ready for use by the readers");
 
-  public static final ConfigProperty<String> SECONDARY_INDEXES_METADATA = ConfigProperty
-      .key("hoodie.table.secondary.indexes.metadata")
-      .noDefaultValue()
-      .withDocumentation("The metadata of secondary indexes");
-
   private static final String TABLE_CHECKSUM_FORMAT = "%s.%s"; // <database_name>.<table_name>
 
   public HoodieTableConfig(FileSystem fs, String metaPath, String payloadClassName) {
@@ -295,8 +272,8 @@ public class HoodieTableConfig extends HoodieConfig {
    * @throws IOException
    */
   private static String storeProperties(Properties props, FSDataOutputStream outputStream) throws IOException {
-    final String checksum;
-    if (isValidChecksum(props)) {
+    String checksum;
+    if (props.containsKey(TABLE_CHECKSUM.key()) && validateChecksum(props)) {
       checksum = props.getProperty(TABLE_CHECKSUM.key());
       props.store(outputStream, "Updated at " + Instant.now());
     } else {
@@ -308,8 +285,8 @@ public class HoodieTableConfig extends HoodieConfig {
     return checksum;
   }
 
-  private static boolean isValidChecksum(Properties props) {
-    return props.containsKey(TABLE_CHECKSUM.key()) && validateChecksum(props);
+  private boolean isValidChecksum() {
+    return contains(TABLE_CHECKSUM) && validateChecksum(props);
   }
 
   /**
@@ -321,13 +298,20 @@ public class HoodieTableConfig extends HoodieConfig {
 
   private void fetchConfigs(FileSystem fs, String metaPath) throws IOException {
     Path cfgPath = new Path(metaPath, HOODIE_PROPERTIES_FILE);
+    Path backupCfgPath = new Path(metaPath, HOODIE_PROPERTIES_FILE_BACKUP);
     try (FSDataInputStream is = fs.open(cfgPath)) {
       props.load(is);
+      // validate checksum for latest table version
+      if (getTableVersion().versionCode() >= HoodieTableVersion.FOUR.versionCode() && !isValidChecksum()) {
+        LOG.warn("Checksum validation failed. Falling back to backed up configs.");
+        try (FSDataInputStream fsDataInputStream = fs.open(backupCfgPath)) {
+          props.load(fsDataInputStream);
+        }
+      }
     } catch (IOException ioe) {
       if (!fs.exists(cfgPath)) {
         LOG.warn("Run `table recover-configs` if config update/delete failed midway. Falling back to backed up configs.");
         // try the backup. this way no query ever fails if update fails midway.
-        Path backupCfgPath = new Path(metaPath, HOODIE_PROPERTIES_FILE_BACKUP);
         try (FSDataInputStream is = fs.open(backupCfgPath)) {
           props.load(is);
         }
@@ -521,23 +505,11 @@ public class HoodieTableConfig extends HoodieConfig {
     return Option.empty();
   }
 
-  public Option<String> getSecondaryIndexesMetadata() {
-    if (contains(SECONDARY_INDEXES_METADATA)) {
-      return Option.of(getString(SECONDARY_INDEXES_METADATA));
-    }
-
-    return Option.empty();
-  }
-
   /**
    * @returns the partition field prop.
-   * @deprecated please use {@link #getPartitionFields()} instead
    */
-  @Deprecated
   public String getPartitionFieldProp() {
-    // NOTE: We're adding a stub returning empty string to stay compatible w/ pre-existing
-    //       behavior until this method is fully deprecated
-    return Option.ofNullable(getString(PARTITION_FIELDS)).orElse("");
+    return getString(PARTITION_FIELDS);
   }
 
   /**
@@ -623,24 +595,16 @@ public class HoodieTableConfig extends HoodieConfig {
     return getStringOrDefault(RECORDKEY_FIELDS, HoodieRecord.RECORD_KEY_METADATA_FIELD);
   }
 
-  public boolean isCDCEnabled() {
-    return getBooleanOrDefault(CDC_ENABLED);
-  }
-
-  public HoodieCDCSupplementalLoggingMode cdcSupplementalLoggingMode() {
-    return HoodieCDCSupplementalLoggingMode.parse(getStringOrDefault(CDC_SUPPLEMENTAL_LOGGING_MODE));
-  }
-
   public String getKeyGeneratorClassName() {
     return getString(KEY_GENERATOR_CLASS_NAME);
   }
 
   public String getHiveStylePartitioningEnable() {
-    return getStringOrDefault(HIVE_STYLE_PARTITIONING_ENABLE);
+    return getString(HIVE_STYLE_PARTITIONING_ENABLE);
   }
 
   public String getUrlEncodePartitioning() {
-    return getStringOrDefault(URL_ENCODE_PARTITIONING);
+    return getString(URL_ENCODE_PARTITIONING);
   }
 
   public Boolean shouldDropPartitionColumns() {
@@ -661,12 +625,13 @@ public class HoodieTableConfig extends HoodieConfig {
     );
   }
 
-  public Set<String> getMetadataPartitions() {
-    return new HashSet<>(
-        StringUtils.split(getStringOrDefault(TABLE_METADATA_PARTITIONS, StringUtils.EMPTY_STRING),
-            CONFIG_VALUES_DELIMITER));
+  public List<String> getMetadataPartitions() {
+    return StringUtils.split(
+        getStringOrDefault(TABLE_METADATA_PARTITIONS, StringUtils.EMPTY_STRING),
+        CONFIG_VALUES_DELIMITER
+    );
   }
-
+  
   /**
    * Returns the format to use for partition meta files.
    */

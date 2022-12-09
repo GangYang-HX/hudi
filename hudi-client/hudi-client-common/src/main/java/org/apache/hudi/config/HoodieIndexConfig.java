@@ -30,9 +30,6 @@ import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.constant.KeyGeneratorOptions;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
-
 import javax.annotation.concurrent.Immutable;
 
 import java.io.File;
@@ -47,13 +44,6 @@ import static org.apache.hudi.config.HoodieHBaseIndexConfig.PUT_BATCH_SIZE;
 import static org.apache.hudi.config.HoodieHBaseIndexConfig.TABLENAME;
 import static org.apache.hudi.config.HoodieHBaseIndexConfig.ZKPORT;
 import static org.apache.hudi.config.HoodieHBaseIndexConfig.ZKQUORUM;
-import static org.apache.hudi.index.HoodieIndex.IndexType.BLOOM;
-import static org.apache.hudi.index.HoodieIndex.IndexType.BUCKET;
-import static org.apache.hudi.index.HoodieIndex.IndexType.GLOBAL_BLOOM;
-import static org.apache.hudi.index.HoodieIndex.IndexType.GLOBAL_SIMPLE;
-import static org.apache.hudi.index.HoodieIndex.IndexType.HBASE;
-import static org.apache.hudi.index.HoodieIndex.IndexType.INMEMORY;
-import static org.apache.hudi.index.HoodieIndex.IndexType.SIMPLE;
 
 /**
  * Indexing related config.
@@ -65,16 +55,10 @@ import static org.apache.hudi.index.HoodieIndex.IndexType.SIMPLE;
         + "which tags incoming records as either inserts or updates to older records.")
 public class HoodieIndexConfig extends HoodieConfig {
 
-  private static final Logger LOG = LogManager.getLogger(HoodieIndexConfig.class);
-
   public static final ConfigProperty<String> INDEX_TYPE = ConfigProperty
       .key("hoodie.index.type")
-      // Builder#getDefaultIndexType has already set it according to engine type
       .noDefaultValue()
-      .withValidValues(HBASE.name(), INMEMORY.name(), BLOOM.name(), GLOBAL_BLOOM.name(),
-          SIMPLE.name(), GLOBAL_SIMPLE.name(), BUCKET.name())
-      .withDocumentation("Type of index to use. Default is SIMPLE on Spark engine, "
-          + "and INMEMORY on Flink and Java engines. "
+      .withDocumentation("Type of index to use. Default is Bloom filter. "
           + "Possible options are [BLOOM | GLOBAL_BLOOM |SIMPLE | GLOBAL_SIMPLE | INMEMORY | HBASE | BUCKET]. "
           + "Bloom filters removes the dependency on a external system "
           + "and is stored in the footer of the Parquet Data Files");
@@ -157,7 +141,6 @@ public class HoodieIndexConfig extends HoodieConfig {
   public static final ConfigProperty<String> BLOOM_FILTER_TYPE = ConfigProperty
       .key("hoodie.bloom.index.filter.type")
       .defaultValue(BloomFilterTypeCode.DYNAMIC_V0.name())
-      .withValidValues(BloomFilterTypeCode.SIMPLE.name(), BloomFilterTypeCode.DYNAMIC_V0.name())
       .withDocumentation("Filter type used. Default is BloomFilterTypeCode.DYNAMIC_V0. "
           + "Available values are [BloomFilterTypeCode.SIMPLE , BloomFilterTypeCode.DYNAMIC_V0]. "
           + "Dynamic bloom filters auto size themselves based on number of keys.");
@@ -233,72 +216,26 @@ public class HoodieIndexConfig extends HoodieConfig {
   /**
    * ***** Bucket Index Configs *****
    * Bucket Index is targeted to locate the record fast by hash in big data scenarios.
-   * A bucket size is recommended less than 3GB to avoid being too small.
-   * For more details and progress, see [HUDI-3039].
+   * The current implementation is a basic version, so there are some constraints:
+   * 1. Unsupported operation: bulk insert, cluster and so on.
+   * 2. Bucket num change requires rewriting the partition.
+   * 3. Predict the table size and future data growth well to set a reasonable bucket num.
+   * 4. A bucket size is recommended less than 3GB and avoid bing too small.
+   * more details and progress see [HUDI-3039].
    */
-
-  /**
-   * Bucket Index Engine Type: implementation of bucket index
-   *
-   * SIMPLE:
-   *  0. Check `HoodieSimpleBucketLayout` for its supported operations.
-   *  1. Bucket num is fixed and requires rewriting the partition if we want to change it.
-   *
-   * CONSISTENT_HASHING:
-   *  0. Check `HoodieConsistentBucketLayout` for its supported operations.
-   *  1. Bucket num will auto-adjust by running clustering (still in progress)
-   */
-  public static final ConfigProperty<String> BUCKET_INDEX_ENGINE_TYPE = ConfigProperty
-      .key("hoodie.index.bucket.engine")
-      .defaultValue("SIMPLE")
-      .sinceVersion("0.11.0")
-      .withDocumentation("Type of bucket index engine to use. Default is SIMPLE bucket index, with fixed number of bucket."
-          + "Possible options are [SIMPLE | CONSISTENT_HASHING]."
-          + "Consistent hashing supports dynamic resizing of the number of bucket, solving potential data skew and file size "
-          + "issues of the SIMPLE hashing engine. Consistent hashing only works with MOR tables, only use simple hashing on COW tables.");
-
-  /**
-   * Bucket num equals file groups num in each partition.
-   * Bucket num can be set according to partition size and file group size.
-   *
-   * In dynamic bucket index cases (e.g., using CONSISTENT_HASHING), this config of number of bucket serves as a initial bucket size
-   */
+  // Bucket num equals file groups num in each partition.
+  // Bucket num can be set according to partition size and file group size.
   public static final ConfigProperty<Integer> BUCKET_INDEX_NUM_BUCKETS = ConfigProperty
       .key("hoodie.bucket.index.num.buckets")
       .defaultValue(256)
-      .withDocumentation("Only applies if index type is BUCKET. Determine the number of buckets in the hudi table, "
+      .withDocumentation("Only applies if index type is BUCKET_INDEX. Determine the number of buckets in the hudi table, "
           + "and each partition is divided to N buckets.");
-
-  public static final ConfigProperty<String> BUCKET_INDEX_MAX_NUM_BUCKETS = ConfigProperty
-      .key("hoodie.bucket.index.max.num.buckets")
-      .noDefaultValue()
-      .withDocumentation("Only applies if bucket index engine is consistent hashing. Determine the upper bound of "
-          + "the number of buckets in the hudi table. Bucket resizing cannot be done higher than this max limit.");
-
-  public static final ConfigProperty<String> BUCKET_INDEX_MIN_NUM_BUCKETS = ConfigProperty
-      .key("hoodie.bucket.index.min.num.buckets")
-      .noDefaultValue()
-      .withDocumentation("Only applies if bucket index engine is consistent hashing. Determine the lower bound of "
-          + "the number of buckets in the hudi table. Bucket resizing cannot be done lower than this min limit.");
 
   public static final ConfigProperty<String> BUCKET_INDEX_HASH_FIELD = ConfigProperty
       .key("hoodie.bucket.index.hash.field")
       .noDefaultValue()
       .withDocumentation("Index key. It is used to index the record and find its file group. "
           + "If not set, use record key field as default");
-
-  public static final ConfigProperty<Double> BUCKET_SPLIT_THRESHOLD = ConfigProperty
-      .key("hoodie.bucket.index.split.threshold")
-      .defaultValue(2.0)
-      .withDocumentation("Control if the bucket should be split when using consistent hashing bucket index."
-          + "Specifically, if a file slice size reaches `hoodie.xxxx.max.file.size` * threshold, then split will be carried out.");
-
-  public static final ConfigProperty<Double> BUCKET_MERGE_THRESHOLD = ConfigProperty
-      .key("hoodie.bucket.index.merge.threshold")
-      .defaultValue(0.2)
-      .withDocumentation("Control if buckets should be merged when using consistent hashing bucket index"
-          + "Specifically, if a file slice size is smaller than `hoodie.xxxx.max.file.size` * threshold, then it will be considered"
-          + "as a merge candidate.");
 
   /**
    * Deprecated configs. These are now part of {@link HoodieHBaseIndexConfig}.
@@ -526,11 +463,6 @@ public class HoodieIndexConfig extends HoodieConfig {
       return this;
     }
 
-    public Builder withBucketIndexEngineType(HoodieIndex.BucketIndexEngineType bucketType) {
-      hoodieIndexConfig.setValue(BUCKET_INDEX_ENGINE_TYPE, bucketType.name());
-      return this;
-    }
-
     public Builder withIndexClass(String indexClass) {
       hoodieIndexConfig.setValue(INDEX_CLASS_NAME, indexClass);
       return this;
@@ -631,16 +563,6 @@ public class HoodieIndexConfig extends HoodieConfig {
       return this;
     }
 
-    public Builder withBucketMaxNum(int bucketMaxNum) {
-      hoodieIndexConfig.setValue(BUCKET_INDEX_MAX_NUM_BUCKETS, String.valueOf(bucketMaxNum));
-      return this;
-    }
-
-    public Builder withBucketMinNum(int bucketMinNum) {
-      hoodieIndexConfig.setValue(BUCKET_INDEX_MIN_NUM_BUCKETS, String.valueOf(bucketMinNum));
-      return this;
-    }
-
     public Builder withIndexKeyField(String keyField) {
       hoodieIndexConfig.setValue(BUCKET_INDEX_HASH_FIELD, keyField);
       return this;
@@ -677,10 +599,10 @@ public class HoodieIndexConfig extends HoodieConfig {
         // check the bucket index hash field
         if (StringUtils.isNullOrEmpty(hoodieIndexConfig.getString(BUCKET_INDEX_HASH_FIELD))) {
           hoodieIndexConfig.setValue(BUCKET_INDEX_HASH_FIELD,
-              hoodieIndexConfig.getString(KeyGeneratorOptions.RECORDKEY_FIELD_NAME));
+              hoodieIndexConfig.getStringOrDefault(KeyGeneratorOptions.RECORDKEY_FIELD_NAME));
         } else {
           boolean valid = Arrays
-              .stream(hoodieIndexConfig.getString(KeyGeneratorOptions.RECORDKEY_FIELD_NAME).split(","))
+              .stream(hoodieIndexConfig.getStringOrDefault(KeyGeneratorOptions.RECORDKEY_FIELD_NAME).split(","))
               .collect(Collectors.toSet())
               .containsAll(Arrays.asList(hoodieIndexConfig.getString(BUCKET_INDEX_HASH_FIELD).split(",")));
           if (!valid) {
@@ -690,20 +612,6 @@ public class HoodieIndexConfig extends HoodieConfig {
         // check the bucket num
         if (hoodieIndexConfig.getIntOrDefault(BUCKET_INDEX_NUM_BUCKETS) <= 0) {
           throw new HoodieIndexException("When using bucket index, hoodie.bucket.index.num.buckets cannot be negative.");
-        }
-        int bucketNum = hoodieIndexConfig.getInt(BUCKET_INDEX_NUM_BUCKETS);
-        if (StringUtils.isNullOrEmpty(hoodieIndexConfig.getString(BUCKET_INDEX_MAX_NUM_BUCKETS))) {
-          hoodieIndexConfig.setValue(BUCKET_INDEX_MAX_NUM_BUCKETS, Integer.toString(bucketNum));
-        } else if (hoodieIndexConfig.getInt(BUCKET_INDEX_MAX_NUM_BUCKETS) < bucketNum) {
-          LOG.warn("Maximum bucket number is smaller than bucket number, maximum: " + hoodieIndexConfig.getInt(BUCKET_INDEX_MAX_NUM_BUCKETS) + ", bucketNum: " + bucketNum);
-          hoodieIndexConfig.setValue(BUCKET_INDEX_MAX_NUM_BUCKETS, Integer.toString(bucketNum));
-        }
-
-        if (StringUtils.isNullOrEmpty(hoodieIndexConfig.getString(BUCKET_INDEX_MIN_NUM_BUCKETS))) {
-          hoodieIndexConfig.setValue(BUCKET_INDEX_MIN_NUM_BUCKETS, Integer.toString(bucketNum));
-        } else if (hoodieIndexConfig.getInt(BUCKET_INDEX_MIN_NUM_BUCKETS) > bucketNum) {
-          LOG.warn("Minimum bucket number is larger than the bucket number, minimum: " + hoodieIndexConfig.getInt(BUCKET_INDEX_MIN_NUM_BUCKETS) + ", bucketNum: " + bucketNum);
-          hoodieIndexConfig.setValue(BUCKET_INDEX_MIN_NUM_BUCKETS, Integer.toString(bucketNum));
         }
       }
     }

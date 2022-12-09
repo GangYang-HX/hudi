@@ -28,7 +28,6 @@ import org.apache.hudi.common.util.TypeUtils;
 import org.apache.hudi.common.util.ValidationUtils;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieNotSupportedException;
-import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.table.action.cluster.ClusteringPlanPartitionFilterMode;
 
 import javax.annotation.Nonnull;
@@ -53,15 +52,11 @@ public class HoodieClusteringConfig extends HoodieConfig {
   public static final String SPARK_SIZED_BASED_CLUSTERING_PLAN_STRATEGY =
       "org.apache.hudi.client.clustering.plan.strategy.SparkSizeBasedClusteringPlanStrategy";
   public static final String FLINK_SIZED_BASED_CLUSTERING_PLAN_STRATEGY =
-      "org.apache.hudi.client.clustering.plan.strategy.FlinkSizeBasedClusteringPlanStrategy";
-  public static final String SPARK_CONSISTENT_BUCKET_CLUSTERING_PLAN_STRATEGY =
-      "org.apache.hudi.client.clustering.plan.strategy.SparkConsistentBucketClusteringPlanStrategy";
+          "org.apache.hudi.client.clustering.plan.strategy.FlinkSizeBasedClusteringPlanStrategy";
   public static final String JAVA_SIZED_BASED_CLUSTERING_PLAN_STRATEGY =
       "org.apache.hudi.client.clustering.plan.strategy.JavaSizeBasedClusteringPlanStrategy";
   public static final String SPARK_SORT_AND_SIZE_EXECUTION_STRATEGY =
       "org.apache.hudi.client.clustering.run.strategy.SparkSortAndSizeExecutionStrategy";
-  public static final String SPARK_CONSISTENT_BUCKET_EXECUTION_STRATEGY =
-      "org.apache.hudi.client.clustering.run.strategy.SparkConsistentBucketClusteringExecutionStrategy";
   public static final String JAVA_SORT_AND_SIZE_EXECUTION_STRATEGY =
       "org.apache.hudi.client.clustering.run.strategy.JavaSortAndSizeExecutionStrategy";
   public static final String PLAN_PARTITION_FILTER_MODE =
@@ -94,7 +89,7 @@ public class HoodieClusteringConfig extends HoodieConfig {
       .key(CLUSTERING_STRATEGY_PARAM_PREFIX + "small.file.limit")
       .defaultValue(String.valueOf(300 * 1024 * 1024L))
       .sinceVersion("0.7.0")
-      .withDocumentation("Files smaller than the size in bytes specified here are candidates for clustering");
+      .withDocumentation("Files smaller than the size specified here are candidates for clustering");
 
   public static final ConfigProperty<String> PARTITION_REGEX_PATTERN = ConfigProperty
       .key(CLUSTERING_STRATEGY_PARAM_PREFIX + "partition.regex.pattern")
@@ -594,46 +589,18 @@ public class HoodieClusteringConfig extends HoodieConfig {
     }
 
     public HoodieClusteringConfig build() {
-      setDefaults();
-      validate();
-
-      return clusteringConfig;
-    }
-
-    private void setDefaults() {
-      // Consistent hashing bucket index
-      if (clusteringConfig.contains(HoodieIndexConfig.INDEX_TYPE.key())
-          && clusteringConfig.contains(HoodieIndexConfig.BUCKET_INDEX_ENGINE_TYPE.key())
-          && clusteringConfig.getString(HoodieIndexConfig.INDEX_TYPE.key()).equalsIgnoreCase(HoodieIndex.IndexType.BUCKET.name())
-          && clusteringConfig.getString(HoodieIndexConfig.BUCKET_INDEX_ENGINE_TYPE.key()).equalsIgnoreCase(HoodieIndex.BucketIndexEngineType.CONSISTENT_HASHING.name())) {
-        clusteringConfig.setDefaultValue(PLAN_STRATEGY_CLASS_NAME, SPARK_CONSISTENT_BUCKET_CLUSTERING_PLAN_STRATEGY);
-        clusteringConfig.setDefaultValue(EXECUTION_STRATEGY_CLASS_NAME, SPARK_CONSISTENT_BUCKET_EXECUTION_STRATEGY);
-      } else {
-        clusteringConfig.setDefaultValue(
-            PLAN_STRATEGY_CLASS_NAME, getDefaultPlanStrategyClassName(engineType));
-        clusteringConfig.setDefaultValue(
-            EXECUTION_STRATEGY_CLASS_NAME, getDefaultExecutionStrategyClassName(engineType));
-      }
+      clusteringConfig.setDefaultValue(
+          PLAN_STRATEGY_CLASS_NAME, getDefaultPlanStrategyClassName(engineType));
+      clusteringConfig.setDefaultValue(
+          EXECUTION_STRATEGY_CLASS_NAME, getDefaultExecutionStrategyClassName(engineType));
       clusteringConfig.setDefaults(HoodieClusteringConfig.class.getName());
-    }
 
-    private void validate() {
       boolean inlineCluster = clusteringConfig.getBoolean(HoodieClusteringConfig.INLINE_CLUSTERING);
       boolean inlineClusterSchedule = clusteringConfig.getBoolean(HoodieClusteringConfig.SCHEDULE_INLINE_CLUSTERING);
       ValidationUtils.checkArgument(!(inlineCluster && inlineClusterSchedule), String.format("Either of inline clustering (%s) or "
               + "schedule inline clustering (%s) can be enabled. Both can't be set to true at the same time. %s,%s", HoodieClusteringConfig.INLINE_CLUSTERING.key(),
           HoodieClusteringConfig.SCHEDULE_INLINE_CLUSTERING.key(), inlineCluster, inlineClusterSchedule));
-
-      // Consistent hashing bucket index
-      if (clusteringConfig.contains(HoodieIndexConfig.INDEX_TYPE.key())
-          && clusteringConfig.contains(HoodieIndexConfig.BUCKET_INDEX_ENGINE_TYPE.key())
-          && clusteringConfig.getString(HoodieIndexConfig.INDEX_TYPE.key()).equalsIgnoreCase(HoodieIndex.IndexType.BUCKET.name())
-          && clusteringConfig.getString(HoodieIndexConfig.BUCKET_INDEX_ENGINE_TYPE.key()).equalsIgnoreCase(HoodieIndex.BucketIndexEngineType.CONSISTENT_HASHING.name())) {
-        ValidationUtils.checkArgument(clusteringConfig.getString(PLAN_STRATEGY_CLASS_NAME).equals(SPARK_CONSISTENT_BUCKET_CLUSTERING_PLAN_STRATEGY),
-            "Consistent hashing bucket index only supports clustering plan strategy : " + SPARK_CONSISTENT_BUCKET_CLUSTERING_PLAN_STRATEGY);
-        ValidationUtils.checkArgument(clusteringConfig.getString(EXECUTION_STRATEGY_CLASS_NAME).equals(SPARK_CONSISTENT_BUCKET_EXECUTION_STRATEGY),
-            "Consistent hashing bucket index only supports clustering execution strategy : " + SPARK_CONSISTENT_BUCKET_EXECUTION_STRATEGY);
-      }
+      return clusteringConfig;
     }
 
     private String getDefaultPlanStrategyClassName(EngineType engineType) {
@@ -641,6 +608,7 @@ public class HoodieClusteringConfig extends HoodieConfig {
         case SPARK:
           return SPARK_SIZED_BASED_CLUSTERING_PLAN_STRATEGY;
         case FLINK:
+          return FLINK_SIZED_BASED_CLUSTERING_PLAN_STRATEGY;
         case JAVA:
           return JAVA_SIZED_BASED_CLUSTERING_PLAN_STRATEGY;
         default:
@@ -712,58 +680,6 @@ public class HoodieClusteringConfig extends HoodieConfig {
       }
 
       return enumValue;
-    }
-
-    public String getValue() {
-      return value;
-    }
-  }
-
-  public enum ClusteringOperator {
-
-    /**
-     * only schedule the clustering plan
-     */
-    SCHEDULE("schedule"),
-
-    /**
-     * only execute then pending clustering plans
-     */
-    EXECUTE("execute"),
-
-    /**
-     * schedule cluster first, and execute all pending clustering plans
-     */
-    SCHEDULE_AND_EXECUTE("scheduleandexecute");
-
-    private static final Map<String, ClusteringOperator> VALUE_TO_ENUM_MAP =
-            TypeUtils.getValueToEnumMap(ClusteringOperator.class, e -> e.value);
-
-    private final String value;
-
-    ClusteringOperator(String value) {
-      this.value = value;
-    }
-
-    @Nonnull
-    public static ClusteringOperator fromValue(String value) {
-      ClusteringOperator enumValue = VALUE_TO_ENUM_MAP.get(value);
-      if (enumValue == null) {
-        throw new HoodieException(String.format("Invalid value (%s)", value));
-      }
-      return enumValue;
-    }
-
-    public boolean isSchedule() {
-      return this != ClusteringOperator.EXECUTE;
-    }
-
-    public boolean isExecute() {
-      return this != ClusteringOperator.SCHEDULE;
-    }
-
-    public String getValue() {
-      return value;
     }
   }
 }

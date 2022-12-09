@@ -259,7 +259,7 @@ public class TestParquetUtils extends HoodieCommonTestHarness {
     }
 
     @Override
-    public List<String> getRecordKeyFieldNames() {
+    public List<String> getRecordKeyFields() {
       return Arrays.asList(new String[]{recordKeyField});
     }
 

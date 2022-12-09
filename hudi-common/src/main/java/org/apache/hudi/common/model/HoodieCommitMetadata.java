@@ -18,18 +18,17 @@
 
 package org.apache.hudi.common.model;
 
-import org.apache.hudi.common.fs.FSUtils;
-import org.apache.hudi.common.util.JsonUtils;
-import org.apache.hudi.common.util.Option;
-import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.exception.HoodieException;
-
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.common.fs.FSUtils;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.common.util.collection.Pair;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -40,7 +39,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -129,7 +127,7 @@ public class HoodieCommitMetadata implements Serializable {
     return this.operationType;
   }
 
-  public HashMap<String, String> getFileIdAndFullPaths(Path basePath) {
+  public HashMap<String, String> getFileIdAndFullPaths(String basePath) {
     HashMap<String, String> fullPaths = new HashMap<>();
     for (Map.Entry<String, String> entry : getFileIdAndRelativePaths().entrySet()) {
       String fullPath = entry.getValue() != null
@@ -138,19 +136,6 @@ public class HoodieCommitMetadata implements Serializable {
       fullPaths.put(entry.getKey(), fullPath);
     }
     return fullPaths;
-  }
-
-  public List<String> getFullPathsByPartitionPath(String basePath, String partitionPath) {
-    HashSet<String> fullPaths = new HashSet<>();
-    if (getPartitionToWriteStats().get(partitionPath) != null) {
-      for (HoodieWriteStat stat : getPartitionToWriteStats().get(partitionPath)) {
-        if ((stat.getFileId() != null)) {
-          String fullPath = FSUtils.getPartitionPath(basePath, stat.getPath()).toString();
-          fullPaths.add(fullPath);
-        }
-      }
-    }
-    return new ArrayList<>(fullPaths);
   }
 
   public Map<HoodieFileGroupId, String> getFileGroupIdAndFullPaths(String basePath) {
@@ -229,7 +214,7 @@ public class HoodieCommitMetadata implements Serializable {
       LOG.info("partition path is null for " + partitionToWriteStats.get(null));
       partitionToWriteStats.remove(null);
     }
-    return JsonUtils.getObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(this);
+    return getObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(this);
   }
 
   public static <T> T fromJsonString(String jsonStr, Class<T> clazz) throws Exception {
@@ -237,45 +222,7 @@ public class HoodieCommitMetadata implements Serializable {
       // For empty commit file (no data or somethings bad happen).
       return clazz.newInstance();
     }
-    return JsonUtils.getObjectMapper().readValue(jsonStr, clazz);
-  }
-
-  /**
-   * parse the bytes of deltacommit, and get the base file and the log files belonging to this
-   * provided file group.
-   */
-  // TODO: refactor this method to avoid doing the json tree walking (HUDI-4822).
-  public static Option<Pair<String, List<String>>> getFileSliceForFileGroupFromDeltaCommit(
-      byte[] bytes, HoodieFileGroupId fileGroupId) {
-    String jsonStr = new String(bytes, StandardCharsets.UTF_8);
-    if (jsonStr.isEmpty()) {
-      return Option.empty();
-    }
-
-    try {
-      JsonNode ptToWriteStatsMap = JsonUtils.getObjectMapper().readTree(jsonStr).get("partitionToWriteStats");
-      Iterator<Map.Entry<String, JsonNode>> pts = ptToWriteStatsMap.fields();
-      while (pts.hasNext()) {
-        Map.Entry<String, JsonNode> ptToWriteStats = pts.next();
-        if (ptToWriteStats.getValue().isArray()) {
-          for (JsonNode writeStat : ptToWriteStats.getValue()) {
-            HoodieFileGroupId fgId = new HoodieFileGroupId(ptToWriteStats.getKey(), writeStat.get("fileId").asText());
-            if (fgId.equals(fileGroupId)) {
-              String baseFile = writeStat.get("baseFile").asText();
-              ArrayNode logFilesNode = (ArrayNode) writeStat.get("logFiles");
-              List<String> logFiles = new ArrayList<>();
-              for (JsonNode logFile : logFilesNode) {
-                logFiles.add(logFile.asText());
-              }
-              return Option.of(Pair.of(baseFile, logFiles));
-            }
-          }
-        }
-      }
-      return Option.empty();
-    } catch (Exception e) {
-      throw new HoodieException("Fail to parse the base file and log files from DeltaCommit", e);
-    }
+    return getObjectMapper().readValue(jsonStr, clazz);
   }
 
   // Here the functions are named "fetch" instead of "get", to get avoid of the json conversion.
@@ -495,6 +442,13 @@ public class HoodieCommitMetadata implements Serializable {
     } catch (Exception e) {
       throw new IOException("unable to read commit metadata", e);
     }
+  }
+
+  protected static ObjectMapper getObjectMapper() {
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    mapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
+    return mapper;
   }
 
   @Override

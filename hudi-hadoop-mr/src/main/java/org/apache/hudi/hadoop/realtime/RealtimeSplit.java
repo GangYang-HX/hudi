@@ -107,12 +107,9 @@ public interface RealtimeSplit extends InputSplitWithLocationInfo {
     } else {
       InputSplitUtils.writeBoolean(true, out);
       InputSplitUtils.writeString(virtualKeyInfoOpt.get().getRecordKeyField(), out);
+      InputSplitUtils.writeString(virtualKeyInfoOpt.get().getPartitionPathField(), out);
       InputSplitUtils.writeString(String.valueOf(virtualKeyInfoOpt.get().getRecordKeyFieldIndex()), out);
-      InputSplitUtils.writeBoolean(virtualKeyInfoOpt.get().getPartitionPathField().isPresent(), out);
-      if (virtualKeyInfoOpt.get().getPartitionPathField().isPresent()) {
-        InputSplitUtils.writeString(virtualKeyInfoOpt.get().getPartitionPathField().get(), out);
-        InputSplitUtils.writeString(String.valueOf(virtualKeyInfoOpt.get().getPartitionPathFieldIndex()), out);
-      }
+      InputSplitUtils.writeString(String.valueOf(virtualKeyInfoOpt.get().getPartitionPathFieldIndex()), out);
     }
   }
 
@@ -133,10 +130,9 @@ public interface RealtimeSplit extends InputSplitWithLocationInfo {
     boolean hoodieVirtualKeyPresent = InputSplitUtils.readBoolean(in);
     if (hoodieVirtualKeyPresent) {
       String recordKeyField = InputSplitUtils.readString(in);
+      String partitionPathField = InputSplitUtils.readString(in);
       int recordFieldIndex = Integer.parseInt(InputSplitUtils.readString(in));
-      boolean isPartitionPathFieldPresent = InputSplitUtils.readBoolean(in);
-      Option<String> partitionPathField = isPartitionPathFieldPresent ? Option.of(InputSplitUtils.readString(in)) : Option.empty();
-      Option<Integer> partitionPathIndex = isPartitionPathFieldPresent ? Option.of(Integer.parseInt(InputSplitUtils.readString(in))) : Option.empty();
+      int partitionPathIndex = Integer.parseInt(InputSplitUtils.readString(in));
       setVirtualKeyInfo(Option.of(new HoodieVirtualKeyInfo(recordKeyField, partitionPathField, recordFieldIndex, partitionPathIndex)));
     }
   }

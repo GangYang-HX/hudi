@@ -28,8 +28,7 @@ import org.apache.hudi.exception.HoodieIndexException;
 import org.apache.hudi.index.bloom.HoodieBloomIndex;
 import org.apache.hudi.index.bloom.HoodieGlobalBloomIndex;
 import org.apache.hudi.index.bloom.SparkHoodieBloomIndexHelper;
-import org.apache.hudi.index.bucket.HoodieSimpleBucketIndex;
-import org.apache.hudi.index.bucket.HoodieSparkConsistentBucketIndex;
+import org.apache.hudi.index.bucket.HoodieBucketIndex;
 import org.apache.hudi.index.hbase.SparkHoodieHBaseIndex;
 import org.apache.hudi.index.inmemory.HoodieInMemoryHashIndex;
 import org.apache.hudi.index.simple.HoodieGlobalSimpleIndex;
@@ -57,6 +56,8 @@ public final class SparkHoodieIndexFactory {
         return new SparkHoodieHBaseIndex(config);
       case INMEMORY:
         return new HoodieInMemoryHashIndex(config);
+      case BUCKET:
+        return new HoodieBucketIndex(config);
       case BLOOM:
         return new HoodieBloomIndex(config, SparkHoodieBloomIndexHelper.getInstance());
       case GLOBAL_BLOOM:
@@ -65,15 +66,6 @@ public final class SparkHoodieIndexFactory {
         return new HoodieSimpleIndex(config, getKeyGeneratorForSimpleIndex(config));
       case GLOBAL_SIMPLE:
         return new HoodieGlobalSimpleIndex(config, getKeyGeneratorForSimpleIndex(config));
-      case BUCKET:
-        switch (config.getBucketIndexEngineType()) {
-          case SIMPLE:
-            return new HoodieSimpleBucketIndex(config);
-          case CONSISTENT_HASHING:
-            return new HoodieSparkConsistentBucketIndex(config);
-          default:
-            throw new HoodieIndexException("Unknown bucket index engine type: " + config.getBucketIndexEngineType());
-        }
       default:
         throw new HoodieIndexException("Index type unspecified, set " + config.getIndexType());
     }
@@ -98,8 +90,6 @@ public final class SparkHoodieIndexFactory {
         return false;
       case GLOBAL_SIMPLE:
         return true;
-      case BUCKET:
-        return false;
       default:
         return createIndex(config).isGlobal();
     }

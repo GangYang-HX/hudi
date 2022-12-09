@@ -22,14 +22,19 @@ import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieKey;
 import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
+import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.configuration.OptionsResolver;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.sink.event.WriteMetadataEvent;
+import org.apache.hudi.util.StreamerUtil;
 import org.apache.hudi.utils.TestData;
 import org.apache.hudi.utils.TestUtils;
 
+import org.apache.avro.Schema;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
 import org.apache.flink.table.data.RowData;
@@ -332,7 +337,9 @@ public class TestWriteBase {
     public TestHarness checkWrittenData(
         Map<String, String> expected,
         int partitions) throws Exception {
-      if (OptionsResolver.isCowTable(conf)) {
+      if (OptionsResolver.isCowTable(conf)
+              || conf.getBoolean(FlinkOptions.COMPACTION_ASYNC_ENABLED)
+              || OptionsResolver.isAppendMode(conf)) {
         TestData.checkWrittenData(this.baseFile, expected, partitions);
       } else {
         checkWrittenDataMor(baseFile, expected, partitions);
@@ -341,12 +348,15 @@ public class TestWriteBase {
     }
 
     private void checkWrittenDataMor(File baseFile, Map<String, String> expected, int partitions) throws Exception {
+      HoodieTableMetaClient metaClient = StreamerUtil.createMetaClient(basePath);
+      Schema schema = new TableSchemaResolver(metaClient).getTableAvroSchema();
+      String latestInstant = lastCompleteInstant();
       FileSystem fs = FSUtils.getFs(basePath, new org.apache.hadoop.conf.Configuration());
-      TestData.checkWrittenDataMOR(fs, baseFile, expected, partitions);
+      TestData.checkWrittenDataMOR(fs, latestInstant, baseFile, expected, partitions, schema);
     }
 
-    public TestHarness checkWrittenDataCOW(Map<String, List<String>> expected) throws IOException {
-      TestData.checkWrittenDataCOW(this.baseFile, expected);
+    public TestHarness checkWrittenFullData(Map<String, List<String>> expected) throws IOException {
+      TestData.checkWrittenFullData(this.baseFile, expected);
       return this;
     }
 

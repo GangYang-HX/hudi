@@ -101,7 +101,7 @@ public class SchemaChangeUtils {
     // deal with root level changes
     List<Types.Field> newFields = TableChangesHelper.applyAddChange2Fields(newType.fields(),
         adds.getParentId2AddCols().get(-1), adds.getPositionChangeMap().get(-1));
-    return new InternalSchema(Types.RecordType.get(newFields, newType.name()));
+    return new InternalSchema(newFields);
   }
 
   /**
@@ -134,7 +134,7 @@ public class SchemaChangeUtils {
             newFields.add(Types.Field.get(oldfield.fieldId(), oldfield.isOptional(), oldfield.name(), newType, oldfield.doc()));
           }
         }
-        return hasChanged ? Types.RecordType.get(newFields, record.name()) : record;
+        return hasChanged ? Types.RecordType.get(newFields) : record;
       case ARRAY:
         Types.ArrayType array = (Types.ArrayType) type;
         Type newElementType;
@@ -173,7 +173,8 @@ public class SchemaChangeUtils {
    * @return a new internalSchema.
    */
   public static InternalSchema applyTableChanges2Schema(InternalSchema internalSchema, TableChanges.ColumnDeleteChange deletes) {
-    return new InternalSchema((Types.RecordType)applyTableChange2Type(internalSchema.getRecord(), deletes));
+    Types.RecordType newType = (Types.RecordType)applyTableChange2Type(internalSchema.getRecord(), deletes);
+    return new InternalSchema(newType.fields());
   }
 
   /**
@@ -200,7 +201,7 @@ public class SchemaChangeUtils {
         if (fields.isEmpty()) {
           throw new UnsupportedOperationException("cannot support delete all columns from Struct");
         }
-        return Types.RecordType.get(fields, record.name());
+        return Types.RecordType.get(fields);
       case ARRAY:
         Types.ArrayType array = (Types.ArrayType) type;
         Type newElementType = applyTableChange2Type(array.elementType(), deletes);
@@ -238,7 +239,7 @@ public class SchemaChangeUtils {
     // deal with root level changes
     List<Types.Field> newFields = TableChangesHelper.applyAddChange2Fields(newType.fields(),
         new ArrayList<>(), updates.getPositionChangeMap().get(-1));
-    return new InternalSchema(Types.RecordType.get(newFields, newType.name()));
+    return new InternalSchema(newFields);
   }
 
   /**
@@ -271,7 +272,7 @@ public class SchemaChangeUtils {
             newFields.add(oldField);
           }
         }
-        return Types.RecordType.get(newFields, record.name());
+        return Types.RecordType.get(newFields);
       case ARRAY:
         Types.ArrayType array = (Types.ArrayType) type;
         Type newElementType;

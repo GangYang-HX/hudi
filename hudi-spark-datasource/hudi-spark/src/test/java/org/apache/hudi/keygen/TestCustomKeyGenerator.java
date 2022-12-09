@@ -28,7 +28,6 @@ import org.apache.hudi.keygen.factory.HoodieSparkKeyGeneratorFactory;
 import org.apache.hudi.testutils.KeyGeneratorTestUtilities;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.catalyst.InternalRow;
-import org.apache.spark.unsafe.types.UTF8String;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -146,13 +145,13 @@ public class TestCustomKeyGenerator extends KeyGeneratorTestUtilities {
         (BuiltinKeyGenerator) HoodieSparkKeyGeneratorFactory.createKeyGenerator(props);
     GenericRecord record = getRecord();
     HoodieKey key = keyGenerator.getKey(record);
-    Assertions.assertEquals("key1", key.getRecordKey());
-    Assertions.assertEquals("timestamp=4357686", key.getPartitionPath());
+    Assertions.assertEquals(key.getRecordKey(), "key1");
+    Assertions.assertEquals(key.getPartitionPath(), "timestamp=4357686");
     Row row = KeyGeneratorTestUtilities.getRow(record);
-    Assertions.assertEquals("key1", keyGenerator.getRecordKey(row));
-    Assertions.assertEquals("timestamp=4357686", keyGenerator.getPartitionPath(row));
+    Assertions.assertEquals(keyGenerator.getRecordKey(row), "key1");
+    Assertions.assertEquals(keyGenerator.getPartitionPath(row), "timestamp=4357686");
     InternalRow internalRow = KeyGeneratorTestUtilities.getInternalRow(row);
-    Assertions.assertEquals(UTF8String.fromString("timestamp=4357686"), keyGenerator.getPartitionPath(internalRow, row.schema()));
+    Assertions.assertEquals(keyGenerator.getPartitionPath(internalRow, row.schema()), "timestamp=4357686");
   }
 
   @Test
@@ -171,13 +170,13 @@ public class TestCustomKeyGenerator extends KeyGeneratorTestUtilities {
 
     GenericRecord record = getRecord();
     HoodieKey key = keyGenerator.getKey(record);
-    Assertions.assertEquals("key1", key.getRecordKey());
-    Assertions.assertEquals("ts_ms=20200321", key.getPartitionPath());
+    Assertions.assertEquals(key.getRecordKey(), "key1");
+    Assertions.assertEquals(key.getPartitionPath(), "ts_ms=20200321");
     Row row = KeyGeneratorTestUtilities.getRow(record);
-    Assertions.assertEquals("key1", keyGenerator.getRecordKey(row));
-    Assertions.assertEquals("ts_ms=20200321", keyGenerator.getPartitionPath(row));
+    Assertions.assertEquals(keyGenerator.getRecordKey(row), "key1");
+    Assertions.assertEquals(keyGenerator.getPartitionPath(row), "ts_ms=20200321");
     InternalRow internalRow = KeyGeneratorTestUtilities.getInternalRow(row);
-    Assertions.assertEquals(UTF8String.fromString("ts_ms=20200321"), keyGenerator.getPartitionPath(internalRow, row.schema()));
+    Assertions.assertEquals(keyGenerator.getPartitionPath(internalRow, row.schema()), "ts_ms=20200321");
   }
 
   @Test
@@ -203,7 +202,7 @@ public class TestCustomKeyGenerator extends KeyGeneratorTestUtilities {
     Assertions.assertTrue(keyGenerator.getPartitionPath(row).isEmpty());
 
     InternalRow internalRow = KeyGeneratorTestUtilities.getInternalRow(row);
-    Assertions.assertEquals(0, keyGenerator.getPartitionPath(internalRow, row.schema()).numBytes());
+    Assertions.assertTrue(keyGenerator.getPartitionPath(internalRow, row.schema()).isEmpty());
   }
 
   @Test
@@ -346,15 +345,15 @@ public class TestCustomKeyGenerator extends KeyGeneratorTestUtilities {
 
     GenericRecord record = getRecord();
     HoodieKey key = keyGenerator.getKey(record);
-    Assertions.assertEquals("_row_key:key1,pii_col:pi", key.getRecordKey());
-    Assertions.assertEquals("timestamp=4357686", key.getPartitionPath());
+    Assertions.assertEquals(key.getRecordKey(), "_row_key:key1,pii_col:pi");
+    Assertions.assertEquals(key.getPartitionPath(), "timestamp=4357686");
 
     Row row = KeyGeneratorTestUtilities.getRow(record);
-    Assertions.assertEquals("_row_key:key1,pii_col:pi", keyGenerator.getRecordKey(row));
-    Assertions.assertEquals("timestamp=4357686", keyGenerator.getPartitionPath(row));
+    Assertions.assertEquals(keyGenerator.getRecordKey(row), "_row_key:key1,pii_col:pi");
+    Assertions.assertEquals(keyGenerator.getPartitionPath(row), "timestamp=4357686");
 
     InternalRow internalRow = KeyGeneratorTestUtilities.getInternalRow(row);
-    Assertions.assertEquals(UTF8String.fromString("timestamp=4357686"), keyGenerator.getPartitionPath(internalRow, row.schema()));
+    Assertions.assertEquals(keyGenerator.getPartitionPath(internalRow, row.schema()), "timestamp=4357686");
   }
 
   @Test
@@ -373,14 +372,14 @@ public class TestCustomKeyGenerator extends KeyGeneratorTestUtilities {
 
     GenericRecord record = getRecord();
     HoodieKey key = keyGenerator.getKey(record);
-    Assertions.assertEquals("_row_key:key1,pii_col:pi", key.getRecordKey());
-    Assertions.assertEquals("timestamp=4357686/ts_ms=20200321", key.getPartitionPath());
+    Assertions.assertEquals(key.getRecordKey(), "_row_key:key1,pii_col:pi");
+    Assertions.assertEquals(key.getPartitionPath(), "timestamp=4357686/ts_ms=20200321");
 
     Row row = KeyGeneratorTestUtilities.getRow(record);
-    Assertions.assertEquals("_row_key:key1,pii_col:pi", keyGenerator.getRecordKey(row));
-    Assertions.assertEquals("timestamp=4357686/ts_ms=20200321", keyGenerator.getPartitionPath(row));
+    Assertions.assertEquals(keyGenerator.getRecordKey(row), "_row_key:key1,pii_col:pi");
+    Assertions.assertEquals(keyGenerator.getPartitionPath(row), "timestamp=4357686/ts_ms=20200321");
 
     InternalRow internalRow = KeyGeneratorTestUtilities.getInternalRow(row);
-    Assertions.assertEquals(UTF8String.fromString("timestamp=4357686/ts_ms=20200321"), keyGenerator.getPartitionPath(internalRow, row.schema()));
+    Assertions.assertEquals(keyGenerator.getPartitionPath(internalRow, row.schema()), "timestamp=4357686/ts_ms=20200321");
   }
 }

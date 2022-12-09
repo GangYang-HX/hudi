@@ -25,7 +25,7 @@ import org.apache.hudi.common.table.view.FileSystemViewStorageConfig;
 import org.apache.hudi.common.table.view.FileSystemViewStorageType;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.sink.utils.TestWriteBase;
-import org.apache.hudi.util.FlinkWriteClients;
+import org.apache.hudi.util.StreamerUtil;
 import org.apache.hudi.utils.TestConfigurations;
 import org.apache.hudi.utils.TestData;
 
@@ -250,7 +250,7 @@ public class TestWriteCopyOnWrite extends TestWriteBase {
         .checkpoint(2)
         .assertNextEvent()
         .checkpointComplete(2)
-        .checkWrittenDataCOW(EXPECTED5)
+        .checkWrittenFullData(EXPECTED5)
         .end();
   }
 
@@ -282,7 +282,7 @@ public class TestWriteCopyOnWrite extends TestWriteBase {
         .checkpoint(2)
         .handleEvents(2)
         .checkpointComplete(2)
-        .checkWrittenDataCOW(EXPECTED5)
+        .checkWrittenFullData(EXPECTED5)
         .end();
   }
 
@@ -295,18 +295,18 @@ public class TestWriteCopyOnWrite extends TestWriteBase {
     conf.setInteger(FlinkOptions.CLUSTERING_DELTA_COMMITS, 1);
 
     prepareInsertPipeline(conf)
-        .consume(TestData.DATA_SET_INSERT_SAME_KEY)
-        .checkpoint(1)
-        .handleEvents(1)
-        .checkpointComplete(1)
-        .checkWrittenData(EXPECTED4, 1)
-        // insert duplicates again
-        .consume(TestData.DATA_SET_INSERT_SAME_KEY)
-        .checkpoint(2)
-        .handleEvents(1)
-        .checkpointComplete(2)
-        .checkWrittenDataCOW(EXPECTED5)
-        .end();
+            .consume(TestData.DATA_SET_INSERT_SAME_KEY)
+            .checkpoint(1)
+            .handleEvents(1)
+            .checkpointComplete(1)
+            .checkWrittenData(EXPECTED4, 1)
+            // insert duplicates again
+            .consume(TestData.DATA_SET_INSERT_SAME_KEY)
+            .checkpoint(2)
+            .handleEvents(1)
+            .checkpointComplete(2)
+            .checkWrittenFullData(EXPECTED5)
+            .end();
   }
 
   @Test
@@ -375,10 +375,6 @@ public class TestWriteCopyOnWrite extends TestWriteBase {
 
     // reset the config option
     conf.setBoolean(FlinkOptions.INDEX_BOOTSTRAP_ENABLED, true);
-    validateIndexLoaded();
-  }
-
-  protected void validateIndexLoaded() throws Exception {
     preparePipeline(conf)
         .consume(TestData.DATA_SET_UPDATE_INSERT)
         .checkIndexLoaded(
@@ -425,13 +421,13 @@ public class TestWriteCopyOnWrite extends TestWriteBase {
   @Test
   public void testReuseEmbeddedServer() throws IOException {
     conf.setInteger("hoodie.filesystem.view.remote.timeout.secs", 500);
-    HoodieFlinkWriteClient writeClient = FlinkWriteClients.createWriteClient(conf);
+    HoodieFlinkWriteClient writeClient = StreamerUtil.createWriteClient(conf);
     FileSystemViewStorageConfig viewStorageConfig = writeClient.getConfig().getViewStorageConfig();
 
     assertSame(viewStorageConfig.getStorageType(), FileSystemViewStorageType.REMOTE_FIRST);
 
     // get another write client
-    writeClient = FlinkWriteClients.createWriteClient(conf);
+    writeClient = StreamerUtil.createWriteClient(conf);
     assertSame(writeClient.getConfig().getViewStorageConfig().getStorageType(), FileSystemViewStorageType.REMOTE_FIRST);
     assertEquals(viewStorageConfig.getRemoteViewServerPort(), writeClient.getConfig().getViewStorageConfig().getRemoteViewServerPort());
     assertEquals(viewStorageConfig.getRemoteTimelineClientTimeoutSecs(), 500);
@@ -445,7 +441,7 @@ public class TestWriteCopyOnWrite extends TestWriteBase {
     return preparePipeline(conf);
   }
 
-  protected TestHarness preparePipeline(Configuration conf) throws Exception {
+  private TestHarness preparePipeline(Configuration conf) throws Exception {
     return TestHarness.instance().preparePipeline(tempFile, conf);
   }
 

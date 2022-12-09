@@ -18,6 +18,8 @@
 
 package org.apache.hudi.metrics;
 
+import java.io.Closeable;
+
 /**
  * Used for testing.
  */
@@ -28,6 +30,11 @@ public class InMemoryMetricsReporter extends MetricsReporter {
 
   @Override
   public void report() {}
+
+  @Override
+  public Closeable getReporter() {
+    return null;
+  }
 
   @Override
   public void stop() {

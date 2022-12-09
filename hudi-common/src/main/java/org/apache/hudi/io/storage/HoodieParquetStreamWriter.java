@@ -18,13 +18,12 @@
 
 package org.apache.hudi.io.storage;
 
-import org.apache.hudi.avro.HoodieAvroWriteSupport;
-import org.apache.hudi.parquet.io.OutputStreamBackedOutputFile;
-
 import org.apache.avro.generic.IndexedRecord;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
+import org.apache.hudi.avro.HoodieAvroWriteSupport;
+import org.apache.hudi.parquet.io.OutputStreamBackedOutputFile;
 import org.apache.parquet.hadoop.ParquetFileWriter;
 import org.apache.parquet.hadoop.ParquetWriter;
 import org.apache.parquet.hadoop.api.WriteSupport;
@@ -32,20 +31,14 @@ import org.apache.parquet.io.OutputFile;
 
 import java.io.IOException;
 
-/**
- * Hudi log block writer for parquet format.
- * <p>
- * TODO(HUDI-3035) unify w/ HoodieParquetWriter.
- *
- * @param <R> Record implementation that permits field access by integer index.
- */
+// TODO(HUDI-3035) unify w/ HoodieParquetWriter
 public class HoodieParquetStreamWriter<R extends IndexedRecord> implements AutoCloseable {
 
   private final ParquetWriter<R> writer;
   private final HoodieAvroWriteSupport writeSupport;
 
   public HoodieParquetStreamWriter(FSDataOutputStream outputStream,
-                                   HoodieParquetConfig<HoodieAvroWriteSupport> parquetConfig) throws IOException {
+                                   HoodieAvroParquetConfig parquetConfig) throws IOException {
     this.writeSupport = parquetConfig.getWriteSupport();
     this.writer = new Builder<R>(new OutputStreamBackedOutputFile(outputStream), writeSupport)
         .withWriteMode(ParquetFileWriter.Mode.CREATE)

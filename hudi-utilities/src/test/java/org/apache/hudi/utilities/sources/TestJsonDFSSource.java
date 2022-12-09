@@ -37,7 +37,7 @@ public class TestJsonDFSSource extends AbstractDFSSourceTestBase {
   @BeforeEach
   public void setup() throws Exception {
     super.setup();
-    this.dfsRoot = basePath + "/jsonFiles";
+    this.dfsRoot = dfsBasePath + "/jsonFiles";
     this.fileSuffix = ".json";
   }
 
@@ -51,6 +51,6 @@ public class TestJsonDFSSource extends AbstractDFSSourceTestBase {
   @Override
   public void writeNewDataToFile(List<HoodieRecord> records, Path path) throws IOException {
     UtilitiesTestBase.Helpers.saveStringsToDFS(
-        Helpers.jsonifyRecords(records), fs, path.toString());
+        Helpers.jsonifyRecords(records), dfs, path.toString());
   }
 }

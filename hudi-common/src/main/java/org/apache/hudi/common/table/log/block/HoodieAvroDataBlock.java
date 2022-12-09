@@ -18,13 +18,6 @@
 
 package org.apache.hudi.common.table.log.block;
 
-import org.apache.hudi.common.fs.SizeAwareDataInputStream;
-import org.apache.hudi.common.model.HoodieRecord;
-import org.apache.hudi.common.util.ClosableIterator;
-import org.apache.hudi.common.util.Option;
-import org.apache.hudi.exception.HoodieIOException;
-import org.apache.hudi.internal.schema.InternalSchema;
-
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericDatumWriter;
@@ -36,9 +29,14 @@ import org.apache.avro.io.DecoderFactory;
 import org.apache.avro.io.Encoder;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hudi.common.fs.SizeAwareDataInputStream;
+import org.apache.hudi.common.model.HoodieRecord;
+import org.apache.hudi.common.util.ClosableIterator;
+import org.apache.hudi.common.util.Option;
+import org.apache.hudi.exception.HoodieIOException;
+import org.apache.hudi.internal.schema.InternalSchema;
 
 import javax.annotation.Nonnull;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
@@ -64,6 +62,17 @@ import static org.apache.hudi.common.util.ValidationUtils.checkState;
 public class HoodieAvroDataBlock extends HoodieDataBlock {
 
   private final ThreadLocal<BinaryEncoder> encoderCache = new ThreadLocal<>();
+
+  public HoodieAvroDataBlock(FSDataInputStream inputStream,
+                             Option<byte[]> content,
+                             boolean readBlockLazily,
+                             HoodieLogBlockContentLocation logBlockContentLocation,
+                             Option<Schema> readerSchema,
+                             Map<HeaderMetadataType, String> header,
+                             Map<HeaderMetadataType, String> footer,
+                             String keyField, InternalSchema internalSchema) {
+    super(content, inputStream, readBlockLazily, Option.of(logBlockContentLocation), readerSchema, header, footer, keyField, false, internalSchema);
+  }
 
   public HoodieAvroDataBlock(FSDataInputStream inputStream,
                              Option<byte[]> content,
@@ -129,7 +138,7 @@ public class HoodieAvroDataBlock extends HoodieDataBlock {
   @Override
   protected ClosableIterator<IndexedRecord> deserializeRecords(byte[] content) throws IOException {
     checkState(this.readerSchema != null, "Reader's schema has to be non-null");
-    return RecordIterator.getInstance(this, content);
+    return RecordIterator.getInstance(this, content, internalSchema);
   }
 
   private static class RecordIterator implements ClosableIterator<IndexedRecord> {
@@ -141,24 +150,35 @@ public class HoodieAvroDataBlock extends HoodieDataBlock {
     private int totalRecords = 0;
     private int readRecords = 0;
 
-    private RecordIterator(Schema readerSchema, Schema writerSchema, byte[] content) throws IOException {
+    private RecordIterator(Schema readerSchema, Schema writerSchema, byte[] content, InternalSchema internalSchema) throws IOException {
       this.content = content;
 
       this.dis = new SizeAwareDataInputStream(new DataInputStream(new ByteArrayInputStream(this.content)));
 
       // 1. Read version for this data block
       int version = this.dis.readInt();
-      if (new HoodieAvroDataBlockVersion(version).hasRecordCount()) {
-        this.totalRecords = this.dis.readInt();
+      HoodieAvroDataBlockVersion logBlockVersion = new HoodieAvroDataBlockVersion(version);
+
+      Schema finalReadSchema = readerSchema;
+      if (!internalSchema.isEmptySchema()) {
+        // we should use write schema to read log file,
+        // since when we have done some DDL operation, the readerSchema maybe different from writeSchema, avro reader will throw exception.
+        // eg: origin writeSchema is: "a String, b double" then we add a new column now the readerSchema will be: "a string, c int, b double". it's wrong to use readerSchema to read old log file.
+        // after we read those record by writeSchema,  we rewrite those record with readerSchema in AbstractHoodieLogRecordReader
+        finalReadSchema = writerSchema;
       }
 
-      this.reader = new GenericDatumReader<>(writerSchema, readerSchema);
+      this.reader = new GenericDatumReader<>(writerSchema, finalReadSchema);
+
+      if (logBlockVersion.hasRecordCount()) {
+        this.totalRecords = this.dis.readInt();
+      }
     }
 
-    public static RecordIterator getInstance(HoodieAvroDataBlock dataBlock, byte[] content) throws IOException {
+    public static RecordIterator getInstance(HoodieAvroDataBlock dataBlock, byte[] content, InternalSchema internalSchema) throws IOException {
       // Get schema from the header
       Schema writerSchema = new Schema.Parser().parse(dataBlock.getLogBlockHeader().get(HeaderMetadataType.SCHEMA));
-      return new RecordIterator(dataBlock.readerSchema, writerSchema, content);
+      return new RecordIterator(dataBlock.readerSchema, writerSchema, content, internalSchema);
     }
 
     @Override
@@ -288,7 +308,7 @@ public class HoodieAvroDataBlock extends HoodieDataBlock {
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
     DataOutputStream output = new DataOutputStream(baos);
 
-    // 1. Compress and Write schema out
+    // 2. Compress and Write schema out
     byte[] schemaContent = compress(schema.toString());
     output.writeInt(schemaContent.length);
     output.write(schemaContent);
@@ -298,10 +318,10 @@ public class HoodieAvroDataBlock extends HoodieDataBlock {
       recordItr.forEachRemaining(records::add);
     }
 
-    // 2. Write total number of records
+    // 3. Write total number of records
     output.writeInt(records.size());
 
-    // 3. Write the records
+    // 4. Write the records
     Iterator<IndexedRecord> itr = records.iterator();
     while (itr.hasNext()) {
       IndexedRecord s = itr.next();

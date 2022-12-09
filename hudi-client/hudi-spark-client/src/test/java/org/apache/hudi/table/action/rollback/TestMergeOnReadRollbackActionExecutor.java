@@ -48,6 +48,7 @@ import org.apache.hudi.testutils.MetadataMergeWriteStatus;
 
 import org.apache.spark.api.java.JavaRDD;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -77,6 +78,7 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
   public void setUp() throws Exception {
     initPath();
     initSparkContexts();
+    //just generate tow partitions
     dataGen = new HoodieTestDataGenerator(new String[] {DEFAULT_FIRST_PARTITION_PATH, DEFAULT_SECOND_PARTITION_PATH});
     initFileSystem();
     initMetaClient();
@@ -88,7 +90,7 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
   }
 
   @ParameterizedTest
-  @ValueSource(booleans = {false, true})
+  @ValueSource(booleans = {true, false})
   public void testMergeOnReadRollbackActionExecutor(boolean isUsingMarkers) throws IOException {
     //1. prepare data and assert data result
     List<FileSlice> firstPartitionCommit2FileSlices = new ArrayList<>();
@@ -123,8 +125,8 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
 
     for (Map.Entry<String, HoodieRollbackPartitionMetadata> entry : rollbackMetadata.entrySet()) {
       HoodieRollbackPartitionMetadata meta = entry.getValue();
-      assertEquals(0, meta.getFailedDeleteFiles().size());
-      assertEquals(0, meta.getSuccessDeleteFiles().size());
+      assertTrue(meta.getFailedDeleteFiles() == null || meta.getFailedDeleteFiles().size() == 0);
+      assertTrue(meta.getSuccessDeleteFiles() == null || meta.getSuccessDeleteFiles().size() == 0);
     }
 
     //4. assert file group after rollback, and compare to the rollbackstat
@@ -157,9 +159,11 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
 
   @Test
   public void testRollbackForCanIndexLogFile() throws IOException {
+    cleanupResources();
+    setUpDFS();
     //1. prepare data and assert data result
     //just generate one partitions
-    dataGen = new HoodieTestDataGenerator(new String[] {DEFAULT_FIRST_PARTITION_PATH});
+    dataGen = new HoodieTestDataGenerator(new String[]{DEFAULT_FIRST_PARTITION_PATH});
     HoodieWriteConfig cfg = HoodieWriteConfig.newBuilder().withPath(basePath).withSchema(HoodieTestDataGenerator.TRIP_EXAMPLE_SCHEMA)
         .withParallelism(2, 2).withBulkInsertParallelism(2).withFinalizeWriteParallelism(2).withDeleteParallelism(2)
         .withTimelineLayoutVersion(TimelineLayoutVersion.CURR_VERSION)
@@ -174,7 +178,7 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
             .withStorageType(FileSystemViewStorageType.EMBEDDED_KV_STORE).build()).withRollbackUsingMarkers(false).withAutoCommit(false).build();
 
     //1. prepare data
-    new HoodieTestDataGenerator().writePartitionMetadata(fs, new String[] {DEFAULT_FIRST_PARTITION_PATH}, basePath);
+    new HoodieTestDataGenerator().writePartitionMetadata(fs, new String[]{DEFAULT_FIRST_PARTITION_PATH}, basePath);
     SparkRDDWriteClient client = getHoodieWriteClient(cfg);
     // Write 1 (only inserts)
     String newCommitTime = "001";
@@ -228,8 +232,8 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
             .getInstantDetails(new HoodieInstant(false, HoodieTimeline.DELTA_COMMIT_ACTION, newCommitTime))
             .get(),
         HoodieCommitMetadata.class);
-    assertTrue(commitMetadata.getPartitionToWriteStats().containsKey(DEFAULT_FIRST_PARTITION_PATH));
-    assertTrue(commitMetadata.getPartitionToWriteStats().containsKey(DEFAULT_SECOND_PARTITION_PATH));
+    assert commitMetadata.getPartitionToWriteStats().containsKey(DEFAULT_FIRST_PARTITION_PATH);
+    assert commitMetadata.getPartitionToWriteStats().containsKey(DEFAULT_SECOND_PARTITION_PATH);
     List<HoodieWriteStat> hoodieWriteStatOptionList = commitMetadata.getPartitionToWriteStats().get(DEFAULT_FIRST_PARTITION_PATH);
     // Both update and insert record should enter same existing fileGroup due to small file handling
     assertEquals(1, hoodieWriteStatOptionList.size());
@@ -278,11 +282,27 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
     assertEquals(1, partitionMetadata.getSuccessDeleteFiles().size());
   }
 
+  @Test
+  public void testFailForCompletedInstants() {
+    Assertions.assertThrows(IllegalArgumentException.class, () -> {
+      HoodieInstant rollBackInstant = new HoodieInstant(false, HoodieTimeline.DELTA_COMMIT_ACTION, "002");
+      new MergeOnReadRollbackActionExecutor(context, getConfigBuilder().build(),
+          getHoodieTable(metaClient, getConfigBuilder().build()),
+          "003",
+          rollBackInstant,
+          true,
+          true,
+          true,
+          false).execute();
+    });
+  }
+
   /**
    * Test Cases for rolling back when there is no base file.
    */
   @Test
-  public void testRollbackWhenFirstCommitFail() {
+  public void testRollbackWhenFirstCommitFail() throws Exception {
+
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder()
         .withRollbackUsingMarkers(false)
         .withPath(basePath).build();
@@ -291,5 +311,14 @@ public class TestMergeOnReadRollbackActionExecutor extends HoodieClientRollbackT
       client.insert(jsc.emptyRDD(), "001");
       client.rollback("001");
     }
+  }
+
+  private void setUpDFS() throws IOException {
+    initDFS();
+    initSparkContexts();
+    //just generate two partitions
+    dataGen = new HoodieTestDataGenerator(new String[] {DEFAULT_FIRST_PARTITION_PATH, DEFAULT_SECOND_PARTITION_PATH});
+    initFileSystem();
+    initDFSMetaClient();
   }
 }

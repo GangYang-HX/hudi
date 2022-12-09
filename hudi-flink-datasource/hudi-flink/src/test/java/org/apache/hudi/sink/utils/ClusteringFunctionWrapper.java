@@ -69,7 +69,6 @@ public class ClusteringFunctionWrapper {
   private ClusteringCommitSink commitSink;
 
   public ClusteringFunctionWrapper(Configuration conf, StreamTask<?, ?> streamTask, StreamConfig streamConfig) {
-    this.conf = conf;
     this.ioManager = new IOManagerAsync();
     MockEnvironment environment = new MockEnvironmentBuilder()
         .setTaskName("mockTask")
@@ -77,6 +76,7 @@ public class ClusteringFunctionWrapper {
         .setIOManager(ioManager)
         .build();
     this.runtimeContext = new MockStreamingRuntimeContext(false, 1, 0, environment);
+    this.conf = conf;
     this.streamTask = streamTask;
     this.streamConfig = streamConfig;
   }

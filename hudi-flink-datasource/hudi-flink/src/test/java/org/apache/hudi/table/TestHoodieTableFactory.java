@@ -23,6 +23,7 @@ import org.apache.hudi.common.model.EventTimeAvroPayload;
 import org.apache.hudi.configuration.FlinkOptions;
 import org.apache.hudi.exception.HoodieValidationException;
 import org.apache.hudi.hive.MultiPartKeysValueExtractor;
+import org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.keygen.ComplexAvroKeyGenerator;
 import org.apache.hudi.keygen.NonpartitionedAvroKeyGenerator;
@@ -151,20 +152,6 @@ public class TestHoodieTableFactory {
     HoodieTableSink tableSink5 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(sourceContext5);
     assertThat(tableSource5.getConf().getString(FlinkOptions.PAYLOAD_CLASS_NAME), is(EventTimeAvroPayload.class.getName()));
     assertThat(tableSink5.getConf().getString(FlinkOptions.PAYLOAD_CLASS_NAME), is(EventTimeAvroPayload.class.getName()));
-
-    // given pk and set pre combine key to no_precombine will be ok
-    ResolvedSchema schema5 = SchemaBuilder.instance()
-        .field("f0", DataTypes.INT().notNull())
-        .field("f1", DataTypes.VARCHAR(20))
-        .field("f2", DataTypes.TIMESTAMP(3))
-        .field("ts", DataTypes.TIMESTAMP(3))
-        .primaryKey("f0")
-        .build();
-    this.conf.setString(FlinkOptions.PRECOMBINE_FIELD, FlinkOptions.NO_PRE_COMBINE);
-    final MockContext sourceContext6 = MockContext.getInstance(this.conf, schema5, "f2");
-
-    assertDoesNotThrow(() -> new HoodieTableFactory().createDynamicTableSource(sourceContext6));
-    assertDoesNotThrow(() -> new HoodieTableFactory().createDynamicTableSink(sourceContext6));
   }
 
   @Test
@@ -202,7 +189,7 @@ public class TestHoodieTableFactory {
     assertThat(conf1.get(FlinkOptions.KEYGEN_CLASS_NAME), is("dummyKeyGenClass"));
 
     // definition with complex primary keys and partition paths
-    this.conf.removeConfig(FlinkOptions.KEYGEN_CLASS_NAME);
+    this.conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, FlinkOptions.KEYGEN_CLASS_NAME.defaultValue());
     ResolvedSchema schema2 = SchemaBuilder.instance()
         .field("f0", DataTypes.INT().notNull())
         .field("f1", DataTypes.VARCHAR(20).notNull())
@@ -217,7 +204,7 @@ public class TestHoodieTableFactory {
     assertThat(conf2.get(FlinkOptions.KEYGEN_CLASS_NAME), is(ComplexAvroKeyGenerator.class.getName()));
 
     // definition with complex primary keys and empty partition paths
-    this.conf.removeConfig(FlinkOptions.KEYGEN_CLASS_NAME);
+    this.conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, FlinkOptions.KEYGEN_CLASS_NAME.defaultValue());
     final MockContext sourceContext3 = MockContext.getInstance(this.conf, schema2, "");
     final HoodieTableSource tableSource3 = (HoodieTableSource) new HoodieTableFactory().createDynamicTableSource(sourceContext3);
     final Configuration conf3 = tableSource3.getConf();
@@ -235,25 +222,19 @@ public class TestHoodieTableFactory {
         .field("ts", DataTypes.TIMESTAMP(3))
         .primaryKey("f0")
         .build();
-
+    this.conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, false);
     final MockContext sourceContext1 = MockContext.getInstance(this.conf, schema1, "f2");
     final HoodieTableSource tableSource1 = (HoodieTableSource) new HoodieTableFactory().createDynamicTableSource(sourceContext1);
     final Configuration conf1 = tableSource1.getConf();
-    assertThat(conf1.getString(FlinkOptions.HIVE_SYNC_DB), is("db1"));
-    assertThat(conf1.getString(FlinkOptions.HIVE_SYNC_TABLE), is("t1"));
     assertThat(conf1.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(MultiPartKeysValueExtractor.class.getName()));
 
     // set up hive style partitioning is true.
-    this.conf.setString(FlinkOptions.HIVE_SYNC_DB, "db2");
-    this.conf.setString(FlinkOptions.HIVE_SYNC_TABLE, "t2");
     this.conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, true);
 
     final MockContext sourceContext2 = MockContext.getInstance(this.conf, schema1, "f2");
     final HoodieTableSource tableSource2 = (HoodieTableSource) new HoodieTableFactory().createDynamicTableSource(sourceContext2);
     final Configuration conf2 = tableSource2.getConf();
-    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_DB), is("db2"));
-    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_TABLE), is("t2"));
-    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(MultiPartKeysValueExtractor.class.getName()));
+    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(SlashEncodedDayPartitionValueExtractor.class.getName()));
   }
 
   @Test
@@ -313,47 +294,6 @@ public class TestHoodieTableFactory {
   }
 
   @Test
-  void testBucketIndexOptionForSink() {
-    ResolvedSchema schema1 = SchemaBuilder.instance()
-        .field("f0", DataTypes.INT().notNull())
-        .field("f1", DataTypes.VARCHAR(20).notNull())
-        .field("f2", DataTypes.TIMESTAMP(3))
-        .primaryKey("f0", "f1")
-        .build();
-
-    this.conf.setString(FlinkOptions.INDEX_TYPE, HoodieIndex.IndexType.BUCKET.name());
-
-    // default use recordKey fields
-    final MockContext context = MockContext.getInstance(this.conf, schema1, "f2");
-    HoodieTableSink tableSink = (HoodieTableSink) (new HoodieTableFactory().createDynamicTableSink(context));
-    final Configuration conf = tableSink.getConf();
-    assertThat(conf.getString(FlinkOptions.INDEX_KEY_FIELD), is("f0,f1"));
-
-    this.conf.setString(FlinkOptions.INDEX_KEY_FIELD, "f0");
-    final MockContext context2 = MockContext.getInstance(this.conf, schema1, "f2");
-    HoodieTableSink tableSink2 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(context2);
-    final Configuration conf2 = tableSink2.getConf();
-    assertThat(conf2.getString(FlinkOptions.INDEX_KEY_FIELD), is("f0"));
-
-    this.conf.setString(FlinkOptions.INDEX_KEY_FIELD, "f1");
-    final MockContext context3 = MockContext.getInstance(this.conf, schema1, "f2");
-    HoodieTableSink tableSink3 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(context3);
-    final Configuration conf3 = tableSink3.getConf();
-    assertThat(conf3.getString(FlinkOptions.INDEX_KEY_FIELD), is("f1"));
-
-    this.conf.setString(FlinkOptions.INDEX_KEY_FIELD, "f0,f1");
-    final MockContext context4 = MockContext.getInstance(this.conf, schema1, "f2");
-    HoodieTableSink tableSink4 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(context4);
-    final Configuration conf4 = tableSink4.getConf();
-    assertThat(conf4.getString(FlinkOptions.INDEX_KEY_FIELD), is("f0,f1"));
-
-    // index key field is not a subset of or equal to the recordKey fields, will throw exception
-    this.conf.setString(FlinkOptions.INDEX_KEY_FIELD, "f2");
-    final MockContext context5 = MockContext.getInstance(this.conf, schema1, "f2");
-    assertThrows(HoodieValidationException.class, () -> new HoodieTableFactory().createDynamicTableSource(context5));
-  }
-
-  @Test
   void testInferAvroSchemaForSink() {
     // infer the schema if not specified
     final HoodieTableSink tableSink1 =
@@ -388,7 +328,7 @@ public class TestHoodieTableFactory {
     assertThat(conf1.get(FlinkOptions.KEYGEN_CLASS_NAME), is("dummyKeyGenClass"));
 
     // definition with complex primary keys and partition paths
-    this.conf.removeConfig(FlinkOptions.KEYGEN_CLASS_NAME);
+    this.conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, FlinkOptions.KEYGEN_CLASS_NAME.defaultValue());
     ResolvedSchema schema2 = SchemaBuilder.instance()
         .field("f0", DataTypes.INT().notNull())
         .field("f1", DataTypes.VARCHAR(20).notNull())
@@ -403,7 +343,7 @@ public class TestHoodieTableFactory {
     assertThat(conf2.get(FlinkOptions.KEYGEN_CLASS_NAME), is(ComplexAvroKeyGenerator.class.getName()));
 
     // definition with complex primary keys and empty partition paths
-    this.conf.removeConfig(FlinkOptions.KEYGEN_CLASS_NAME);
+    this.conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, FlinkOptions.KEYGEN_CLASS_NAME.defaultValue());
     final MockContext sinkContext3 = MockContext.getInstance(this.conf, schema2, "");
     final HoodieTableSink tableSink3 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(sinkContext3);
     final Configuration conf3 = tableSink3.getConf();
@@ -432,24 +372,27 @@ public class TestHoodieTableFactory {
         .primaryKey("f0")
         .build();
 
+    final MockContext sinkContext0 = MockContext.getInstance(this.conf, schema1, "f2");
+    final HoodieTableSink tableSink0 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(sinkContext0);
+    final Configuration conf0 = tableSink0.getConf();
+    // test the FlinkOptions.HIVE_STYLE_PARTITIONING which is default true when the hudi table is partitioned.
+    assertThat(conf0.getBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING), is(true));
+    assertThat(conf0.getBoolean(FlinkOptions.HIVE_SYNC_ENABLED), is(true));
+    assertThat(conf0.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(SlashEncodedDayPartitionValueExtractor.class.getName()));
+
+    this.conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, false);
     final MockContext sinkContext1 = MockContext.getInstance(this.conf, schema1, "f2");
     final HoodieTableSink tableSink1 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(sinkContext1);
     final Configuration conf1 = tableSink1.getConf();
-    assertThat(conf1.getString(FlinkOptions.HIVE_SYNC_DB), is("db1"));
-    assertThat(conf1.getString(FlinkOptions.HIVE_SYNC_TABLE), is("t1"));
     assertThat(conf1.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(MultiPartKeysValueExtractor.class.getName()));
 
     // set up hive style partitioning is true.
-    this.conf.setString(FlinkOptions.HIVE_SYNC_DB, "db2");
-    this.conf.setString(FlinkOptions.HIVE_SYNC_TABLE, "t2");
     this.conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, true);
 
     final MockContext sinkContext2 = MockContext.getInstance(this.conf, schema1, "f2");
     final HoodieTableSink tableSink2 = (HoodieTableSink) new HoodieTableFactory().createDynamicTableSink(sinkContext2);
     final Configuration conf2 = tableSink2.getConf();
-    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_DB), is("db2"));
-    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_TABLE), is("t2"));
-    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(MultiPartKeysValueExtractor.class.getName()));
+    assertThat(conf2.getString(FlinkOptions.HIVE_SYNC_PARTITION_EXTRACTOR_CLASS_NAME), is(SlashEncodedDayPartitionValueExtractor.class.getName()));
   }
 
   @Test
@@ -485,6 +428,7 @@ public class TestHoodieTableFactory {
   @Test
   void testSetupTimestampBasedKeyGenForSink() {
     this.conf.setString(FlinkOptions.RECORD_KEY_FIELD, "dummyField");
+    this.conf.setString(FlinkOptions.KEYGEN_CLASS_NAME, "dummyKeyGenClass");
     // definition with simple primary key and partition path
     ResolvedSchema schema1 = SchemaBuilder.instance()
         .field("f0", DataTypes.INT().notNull())
@@ -553,7 +497,7 @@ public class TestHoodieTableFactory {
 
     @Override
     public ObjectIdentifier getObjectIdentifier() {
-      return ObjectIdentifier.of("hudi", "db1", "t1");
+      return ObjectIdentifier.of("hudi", "default", "t1");
     }
 
     @Override

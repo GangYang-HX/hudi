@@ -171,15 +171,13 @@ public class HoodieCompactor {
       System.exit(1);
     }
     final JavaSparkContext jsc = UtilHelpers.buildSparkContext("compactor-" + cfg.tableName, cfg.sparkMaster, cfg.sparkMemory);
-    int ret = 0;
     try {
       HoodieCompactor compactor = new HoodieCompactor(jsc, cfg);
-      ret = compactor.compact(cfg.retry);
+      compactor.compact(cfg.retry);
     } catch (Throwable throwable) {
       LOG.error("Fail to run compaction for " + cfg.tableName, throwable);
     } finally {
       jsc.stop();
-      System.exit(ret);
     }
   }
 

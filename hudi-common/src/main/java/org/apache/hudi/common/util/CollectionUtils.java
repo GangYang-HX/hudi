@@ -34,56 +34,21 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
-import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
-import static org.apache.hudi.common.util.ValidationUtils.checkArgument;
-
-/**
- * Utils for Java Collection.
- */
 public class CollectionUtils {
 
-  private static final Properties EMPTY_PROPERTIES = new Properties();
-
-  /**
-   * Returns an empty {@code Properties} instance. The props instance is a singleton,
-   * it should not be modified in any case.
-   */
-  public static Properties emptyProps() {
-    return EMPTY_PROPERTIES;
-  }
+  public static final Properties EMPTY_PROPERTIES = new Properties();
 
   public static boolean isNullOrEmpty(Collection<?> c) {
     return Objects.isNull(c) || c.isEmpty();
   }
 
-  public static boolean isNullOrEmpty(Map<?, ?> m) {
-    return Objects.isNull(m) || m.isEmpty();
-  }
-
   public static boolean nonEmpty(Collection<?> c) {
     return !isNullOrEmpty(c);
-  }
-
-  /**
-   * Makes a copy of provided {@link Properties} object
-   */
-  public static Properties copy(Properties props) {
-    Properties copy = new Properties();
-    copy.putAll(props);
-    return copy;
-  }
-
-  /**
-   * Returns last element of the array of {@code T}
-   */
-  public static <T> T tail(T[] ts) {
-    checkArgument(ts.length > 0);
-    return ts[ts.length - 1];
   }
 
   /**
@@ -143,22 +108,9 @@ public class CollectionUtils {
   }
 
   /**
-   * Combines provided {@link Map}s into one, returning new instance of {@link HashMap}.
-   *
-   * NOTE: That values associated with overlapping keys from the second map, will override
-   *       values from the first one
-   */
-  public static <K, V> HashMap<K, V> combine(Map<K, V> one, Map<K, V> another, BiFunction<V, V, V> merge) {
-    HashMap<K, V> combined = new HashMap<>(one.size() + another.size());
-    combined.putAll(one);
-    another.forEach((k, v) -> combined.merge(k, v, merge));
-    return combined;
-  }
-
-  /**
    * Returns difference b/w {@code one} {@link Set} of elements and {@code another}
    */
-  public static <E> Set<E> diff(Collection<E> one, Collection<E> another) {
+  public static <E> Set<E> diff(Set<E> one, Set<E> another) {
     Set<E> diff = new HashSet<>(one);
     diff.removeAll(another);
     return diff;
@@ -167,7 +119,7 @@ public class CollectionUtils {
   /**
    * Returns difference b/w {@code one} {@link List} of elements and {@code another}
    *
-   * NOTE: This is less optimal counterpart to {@link #diff(Collection, Collection)}, accepting {@link List}
+   * NOTE: This is less optimal counterpart to {@link #diff(Set, Set)}, accepting {@link List}
    *       as a holding collection to support duplicate elements use-cases
    */
   public static <E> List<E> diff(List<E> one, List<E> another) {
@@ -177,7 +129,7 @@ public class CollectionUtils {
   }
 
   public static <E> Stream<List<E>> batchesAsStream(List<E> list, int batchSize) {
-    checkArgument(batchSize > 0, "batch size must be positive.");
+    ValidationUtils.checkArgument(batchSize > 0, "batch size must be positive.");
     int total = list.size();
     if (total <= 0) {
       return Stream.empty();
@@ -268,5 +220,4 @@ public class CollectionUtils {
   private static Object checkElementNotNull(Object element, int index) {
     return Objects.requireNonNull(element, "Element is null at index " + index);
   }
-
 }

@@ -35,7 +35,6 @@ import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.StringUtils;
-import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.utilities.exception.HoodieSnapshotExporterException;
 
 import com.beust.jcommander.IValueValidator;
@@ -59,11 +58,12 @@ import org.apache.spark.sql.SaveMode;
 
 import java.io.IOException;
 import java.io.Serializable;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import scala.Tuple2;
 import scala.collection.JavaConversions;
 
 /**
@@ -111,26 +111,22 @@ public class HoodieSnapshotExporter {
 
     @Parameter(names = {"--output-partitioner"}, description = "A class to facilitate custom repartitioning")
     public String outputPartitioner = null;
-
-    @Parameter(names = {"--parallelism", "-pl"}, description = "Parallelism for file listing")
-    public int parallelism = 0;
   }
 
   public void export(JavaSparkContext jsc, Config cfg) throws IOException {
-    FileSystem outputFs = FSUtils.getFs(cfg.targetOutputPath, jsc.hadoopConfiguration());
-    if (outputFs.exists(new Path(cfg.targetOutputPath))) {
+    FileSystem fs = FSUtils.getFs(cfg.sourceBasePath, jsc.hadoopConfiguration());
+    HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
+
+    if (outputPathExists(fs, cfg)) {
       throw new HoodieSnapshotExporterException("The target output path already exists.");
     }
 
-    FileSystem sourceFs = FSUtils.getFs(cfg.sourceBasePath, jsc.hadoopConfiguration());
-    final String latestCommitTimestamp = getLatestCommitTimestamp(sourceFs, cfg)
-        .<HoodieSnapshotExporterException>orElseThrow(() -> {
-          throw new HoodieSnapshotExporterException("No commits present. Nothing to snapshot.");
-        });
+    final String latestCommitTimestamp = getLatestCommitTimestamp(fs, cfg).<HoodieSnapshotExporterException>orElseThrow(() -> {
+      throw new HoodieSnapshotExporterException("No commits present. Nothing to snapshot.");
+    });
     LOG.info(String.format("Starting to snapshot latest version files which are also no-late-than %s.",
         latestCommitTimestamp));
 
-    final HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
     final List<String> partitions = getPartitions(engineContext, cfg);
     if (partitions.isEmpty()) {
       throw new HoodieSnapshotExporterException("The source dataset has 0 partition to snapshot.");
@@ -138,11 +134,15 @@ public class HoodieSnapshotExporter {
     LOG.info(String.format("The job needs to export %d partitions.", partitions.size()));
 
     if (cfg.outputFormat.equals(OutputFormatValidator.HUDI)) {
-      exportAsHudi(jsc, sourceFs, cfg, partitions, latestCommitTimestamp);
+      exportAsHudi(jsc, cfg, partitions, latestCommitTimestamp);
     } else {
-      exportAsNonHudi(jsc, sourceFs, cfg, partitions, latestCommitTimestamp);
+      exportAsNonHudi(jsc, cfg, partitions, latestCommitTimestamp);
     }
-    createSuccessTag(outputFs, cfg);
+    createSuccessTag(fs, cfg);
+  }
+
+  private boolean outputPathExists(FileSystem fs, Config cfg) throws IOException {
+    return fs.exists(new Path(cfg.targetOutputPath));
   }
 
   private Option<String> getLatestCommitTimestamp(FileSystem fs, Config cfg) {
@@ -164,8 +164,7 @@ public class HoodieSnapshotExporter {
     }
   }
 
-  private void exportAsNonHudi(JavaSparkContext jsc, FileSystem sourceFs,
-                               Config cfg, List<String> partitions, String latestCommitTimestamp) {
+  private void exportAsNonHudi(JavaSparkContext jsc, Config cfg, List<String> partitions, String latestCommitTimestamp) {
     Partitioner defaultPartitioner = dataset -> {
       Dataset<Row> hoodieDroppedDataset = dataset.drop(JavaConversions.asScalaIterator(HoodieRecord.HOODIE_META_COLUMNS.iterator()).toSeq());
       return StringUtils.isNullOrEmpty(cfg.outputPartitionField)
@@ -178,8 +177,8 @@ public class HoodieSnapshotExporter {
         : ReflectionUtils.loadClass(cfg.outputPartitioner);
 
     HoodieEngineContext context = new HoodieSparkEngineContext(jsc);
-    context.setJobStatus(this.getClass().getSimpleName(), "Exporting as non-HUDI dataset: " + cfg.targetOutputPath);
-    final BaseFileOnlyView fsView = getBaseFileOnlyView(sourceFs, cfg);
+    context.setJobStatus(this.getClass().getSimpleName(), "Exporting as non-HUDI dataset");
+    final BaseFileOnlyView fsView = getBaseFileOnlyView(jsc, cfg);
     Iterator<String> exportingFilePaths = jsc
         .parallelize(partitions, partitions.size())
         .flatMap(partition -> fsView
@@ -190,57 +189,50 @@ public class HoodieSnapshotExporter {
     Dataset<Row> sourceDataset = new SQLContext(jsc).read().parquet(JavaConversions.asScalaIterator(exportingFilePaths).toSeq());
     partitioner.partition(sourceDataset)
         .format(cfg.outputFormat)
-        .mode(SaveMode.ErrorIfExists)
+        .mode(SaveMode.Overwrite)
         .save(cfg.targetOutputPath);
   }
 
-  private void exportAsHudi(JavaSparkContext jsc, FileSystem sourceFs,
-                            Config cfg, List<String> partitions, String latestCommitTimestamp) throws IOException {
-    final int parallelism = cfg.parallelism == 0 ? jsc.defaultParallelism() : cfg.parallelism;
-    final BaseFileOnlyView fsView = getBaseFileOnlyView(sourceFs, cfg);
+  private void exportAsHudi(JavaSparkContext jsc, Config cfg, List<String> partitions, String latestCommitTimestamp) throws IOException {
+    final BaseFileOnlyView fsView = getBaseFileOnlyView(jsc, cfg);
+
     final HoodieEngineContext context = new HoodieSparkEngineContext(jsc);
     final SerializableConfiguration serConf = context.getHadoopConf();
     context.setJobStatus(this.getClass().getSimpleName(), "Exporting as HUDI dataset");
-    List<Pair<String, String>> partitionAndFileList = context.flatMap(partitions, partition -> {
+
+    List<Tuple2<String, String>> files = context.flatMap(partitions, partition -> {
       // Only take latest version files <= latestCommit.
-      List<Pair<String, String>> filePaths = fsView
-          .getLatestBaseFilesBeforeOrOn(partition, latestCommitTimestamp)
-          .map(f -> Pair.of(partition, f.getPath()))
-          .collect(Collectors.toList());
+      List<Tuple2<String, String>> filePaths = new ArrayList<>();
+      Stream<HoodieBaseFile> dataFiles = fsView.getLatestBaseFilesBeforeOrOn(partition, latestCommitTimestamp);
+      dataFiles.forEach(hoodieDataFile -> filePaths.add(new Tuple2<>(partition, hoodieDataFile.getPath())));
       // also need to copy over partition metadata
       FileSystem fs = FSUtils.getFs(cfg.sourceBasePath, serConf.newCopy());
       Path partitionMetaFile = HoodiePartitionMetadata.getPartitionMetafilePath(fs,
           FSUtils.getPartitionPath(cfg.sourceBasePath, partition)).get();
       if (fs.exists(partitionMetaFile)) {
-        filePaths.add(Pair.of(partition, partitionMetaFile.toString()));
+        filePaths.add(new Tuple2<>(partition, partitionMetaFile.toString()));
       }
       return filePaths.stream();
-    }, parallelism);
+    }, partitions.size());
 
-    context.foreach(partitionAndFileList, partitionAndFile -> {
-      String partition = partitionAndFile.getLeft();
-      Path sourceFilePath = new Path(partitionAndFile.getRight());
+    context.foreach(files, tuple -> {
+      String partition = tuple._1();
+      Path sourceFilePath = new Path(tuple._2());
       Path toPartitionPath = FSUtils.getPartitionPath(cfg.targetOutputPath, partition);
-      FileSystem executorSourceFs = FSUtils.getFs(cfg.sourceBasePath, serConf.newCopy());
-      FileSystem executorOutputFs = FSUtils.getFs(cfg.targetOutputPath, serConf.newCopy());
+      FileSystem fs = FSUtils.getFs(cfg.targetOutputPath, serConf.newCopy());
 
-      if (!executorOutputFs.exists(toPartitionPath)) {
-        executorOutputFs.mkdirs(toPartitionPath);
+      if (!fs.exists(toPartitionPath)) {
+        fs.mkdirs(toPartitionPath);
       }
-      FileUtil.copy(
-          executorSourceFs,
-          sourceFilePath,
-          executorOutputFs,
-          new Path(toPartitionPath, sourceFilePath.getName()),
-          false,
-          false,
-          executorOutputFs.getConf());
-    }, parallelism);
+      FileUtil.copy(fs, sourceFilePath, fs, new Path(toPartitionPath, sourceFilePath.getName()), false,
+          fs.getConf());
+    }, files.size());
 
     // Also copy the .commit files
     LOG.info(String.format("Copying .commit files which are no-late-than %s.", latestCommitTimestamp));
+    final FileSystem fileSystem = FSUtils.getFs(cfg.sourceBasePath, jsc.hadoopConfiguration());
     FileStatus[] commitFilesToCopy =
-        sourceFs.listStatus(new Path(cfg.sourceBasePath + "/" + HoodieTableMetaClient.METAFOLDER_NAME), commitFilePath -> {
+        fileSystem.listStatus(new Path(cfg.sourceBasePath + "/" + HoodieTableMetaClient.METAFOLDER_NAME), (commitFilePath) -> {
           if (commitFilePath.getName().equals(HoodieTableConfig.HOODIE_PROPERTIES_FILE)) {
             return true;
           } else {
@@ -249,31 +241,23 @@ public class HoodieSnapshotExporter {
             );
           }
         });
-    context.foreach(Arrays.asList(commitFilesToCopy), commitFile -> {
+    for (FileStatus commitStatus : commitFilesToCopy) {
       Path targetFilePath =
-          new Path(cfg.targetOutputPath + "/" + HoodieTableMetaClient.METAFOLDER_NAME + "/" + commitFile.getPath().getName());
-      FileSystem executorSourceFs = FSUtils.getFs(cfg.sourceBasePath, serConf.newCopy());
-      FileSystem executorOutputFs = FSUtils.getFs(cfg.targetOutputPath, serConf.newCopy());
-
-      if (!executorOutputFs.exists(targetFilePath.getParent())) {
-        executorOutputFs.mkdirs(targetFilePath.getParent());
+          new Path(cfg.targetOutputPath + "/" + HoodieTableMetaClient.METAFOLDER_NAME + "/" + commitStatus.getPath().getName());
+      if (!fileSystem.exists(targetFilePath.getParent())) {
+        fileSystem.mkdirs(targetFilePath.getParent());
       }
-      FileUtil.copy(
-          executorSourceFs,
-          commitFile.getPath(),
-          executorOutputFs,
-          targetFilePath,
-          false,
-          false,
-          executorOutputFs.getConf());
-    }, parallelism);
+      if (fileSystem.exists(targetFilePath)) {
+        LOG.error(
+            String.format("The target output commit file (%s targetBasePath) already exists.", targetFilePath));
+      }
+      FileUtil.copy(fileSystem, commitStatus.getPath(), fileSystem, targetFilePath, false, fileSystem.getConf());
+    }
   }
 
-  private BaseFileOnlyView getBaseFileOnlyView(FileSystem sourceFs, Config cfg) {
-    HoodieTableMetaClient tableMetadata = HoodieTableMetaClient.builder()
-        .setConf(sourceFs.getConf())
-        .setBasePath(cfg.sourceBasePath)
-        .build();
+  private BaseFileOnlyView getBaseFileOnlyView(JavaSparkContext jsc, Config cfg) {
+    FileSystem fs = FSUtils.getFs(cfg.sourceBasePath, jsc.hadoopConfiguration());
+    HoodieTableMetaClient tableMetadata = HoodieTableMetaClient.builder().setConf(fs.getConf()).setBasePath(cfg.sourceBasePath).build();
     return new HoodieTableFileSystemView(tableMetadata, tableMetadata
         .getActiveTimeline().getWriteTimeline().filterCompletedInstants());
   }

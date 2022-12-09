@@ -60,11 +60,9 @@ public class SqlQueryBasedTransformer implements Transformer {
     // tmp table name doesn't like dashes
     String tmpTable = TMP_TABLE.concat(UUID.randomUUID().toString().replace("-", "_"));
     LOG.info("Registering tmp table : " + tmpTable);
-    rowDataset.createOrReplaceTempView(tmpTable);
+    rowDataset.registerTempTable(tmpTable);
     String sqlStr = transformerSQL.replaceAll(SRC_PATTERN, tmpTable);
     LOG.debug("SQL Query for transformation : (" + sqlStr + ")");
-    Dataset<Row> transformed = sparkSession.sql(sqlStr);
-    sparkSession.catalog().dropTempView(tmpTable);
-    return transformed;
+    return sparkSession.sql(sqlStr);
   }
 }

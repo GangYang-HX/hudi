@@ -20,6 +20,7 @@ package org.apache.hudi.table.action.rollback;
 
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.PathFilter;
 import org.apache.hudi.avro.model.HoodieRollbackRequest;
 import org.apache.hudi.common.HoodieRollbackStat;
 import org.apache.hudi.common.engine.HoodieEngineContext;
@@ -31,6 +32,7 @@ import org.apache.hudi.common.table.log.HoodieLogFormat;
 import org.apache.hudi.common.table.log.block.HoodieCommandBlock;
 import org.apache.hudi.common.table.log.block.HoodieLogBlock;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
+import org.apache.hudi.common.util.TraceUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.exception.HoodieIOException;
@@ -72,7 +74,7 @@ public class BaseRollbackHelper implements Serializable {
   public List<HoodieRollbackStat> performRollback(HoodieEngineContext context, HoodieInstant instantToRollback,
                                                   List<HoodieRollbackRequest> rollbackRequests) {
     int parallelism = Math.max(Math.min(rollbackRequests.size(), config.getRollbackParallelism()), 1);
-    context.setJobStatus(this.getClass().getSimpleName(), "Perform rollback actions: " + config.getTableName());
+    context.setJobStatus(this.getClass().getSimpleName(), "Perform rollback actions");
     // If not for conversion to HoodieRollbackInternalRequests, code fails. Using avro model (HoodieRollbackRequest) within spark.parallelize
     // is failing with com.esotericsoftware.kryo.KryoException
     // stack trace: https://gist.github.com/nsivabalan/b6359e7d5038484f8043506c8bc9e1c8
@@ -88,7 +90,7 @@ public class BaseRollbackHelper implements Serializable {
   public List<HoodieRollbackStat> collectRollbackStats(HoodieEngineContext context, HoodieInstant instantToRollback,
                                                        List<HoodieRollbackRequest> rollbackRequests) {
     int parallelism = Math.max(Math.min(rollbackRequests.size(), config.getRollbackParallelism()), 1);
-    context.setJobStatus(this.getClass().getSimpleName(), "Collect rollback stats for upgrade/downgrade: " + config.getTableName());
+    context.setJobStatus(this.getClass().getSimpleName(), "Collect rollback stats for upgrade/downgrade");
     // If not for conversion to HoodieRollbackInternalRequests, code fails. Using avro model (HoodieRollbackRequest) within spark.parallelize
     // is failing with com.esotericsoftware.kryo.KryoException
     // stack trace: https://gist.github.com/nsivabalan/b6359e7d5038484f8043506c8bc9e1c8
@@ -120,7 +122,6 @@ public class BaseRollbackHelper implements Serializable {
         return partitionToRollbackStats.stream();
       } else if (!rollbackRequest.getLogBlocksToBeDeleted().isEmpty()) {
         HoodieLogFormat.Writer writer = null;
-        final Path filePath;
         try {
           String fileId = rollbackRequest.getFileId();
           String latestBaseInstant = rollbackRequest.getLatestBaseInstant();
@@ -136,10 +137,7 @@ public class BaseRollbackHelper implements Serializable {
           if (doDelete) {
             Map<HoodieLogBlock.HeaderMetadataType, String> header = generateHeader(instantToRollback.getTimestamp());
             // if update belongs to an existing log file
-            // use the log file path from AppendResult in case the file handle may roll over
-            filePath = writer.appendBlock(new HoodieCommandBlock(header)).logFile().getPath();
-          } else {
-            filePath = writer.getLogFile().getPath();
+            writer.appendBlock(new HoodieCommandBlock(header));
           }
         } catch (IOException | InterruptedException io) {
           throw new HoodieRollbackException("Failed to rollback for instant " + instantToRollback, io);
@@ -157,7 +155,7 @@ public class BaseRollbackHelper implements Serializable {
         // getFileStatus would reflect correct stats and FileNotFoundException is not thrown in
         // cloud-storage : HUDI-168
         Map<FileStatus, Long> filesToNumBlocksRollback = Collections.singletonMap(
-            metaClient.getFs().getFileStatus(Objects.requireNonNull(filePath)),
+            metaClient.getFs().getFileStatus(Objects.requireNonNull(writer).getLogFile().getPath()),
             1L
         );
 
@@ -196,6 +194,7 @@ public class BaseRollbackHelper implements Serializable {
             // if first rollback attempt failed and retried again, chances that some files are already deleted.
             isDeleted = true;
           }
+          LOG.info(TraceUtils.getDataFileDeleteTrace(fullDeletePath.toString()));
         }
         return HoodieRollbackStat.newBuilder()
             .withPartitionPath(partitionPath)
@@ -214,7 +213,11 @@ public class BaseRollbackHelper implements Serializable {
     header.put(HoodieLogBlock.HeaderMetadataType.INSTANT_TIME, metaClient.getActiveTimeline().lastInstant().get().getTimestamp());
     header.put(HoodieLogBlock.HeaderMetadataType.TARGET_INSTANT_TIME, commit);
     header.put(HoodieLogBlock.HeaderMetadataType.COMMAND_BLOCK_TYPE,
-        String.valueOf(HoodieCommandBlock.HoodieCommandBlockTypeEnum.ROLLBACK_BLOCK.ordinal()));
+        String.valueOf(HoodieCommandBlock.HoodieCommandBlockTypeEnum.ROLLBACK_PREVIOUS_BLOCK.ordinal()));
     return header;
+  }
+
+  public interface SerializablePathFilter extends PathFilter, Serializable {
+
   }
 }

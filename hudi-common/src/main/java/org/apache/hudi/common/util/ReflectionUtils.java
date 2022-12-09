@@ -61,11 +61,11 @@ public class ReflectionUtils {
     return CLAZZ_CACHE.get(clazzName);
   }
 
-  public static <T> T loadClass(String className) {
+  public static <T> T loadClass(String fqcn) {
     try {
-      return (T) getClass(className).newInstance();
+      return (T) getClass(fqcn).newInstance();
     } catch (InstantiationException | IllegalAccessException e) {
-      throw new HoodieException("Could not load class " + className, e);
+      throw new HoodieException("Could not load class " + fqcn, e);
     }
   }
 

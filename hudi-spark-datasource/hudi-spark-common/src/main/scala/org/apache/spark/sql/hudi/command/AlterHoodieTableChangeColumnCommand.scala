@@ -19,9 +19,10 @@ package org.apache.spark.sql.hudi.command
 
 import org.apache.avro.Schema
 import org.apache.hudi.AvroConversionUtils
-import org.apache.hudi.avro.{AvroSchemaUtils, HoodieAvroUtils}
+import org.apache.hudi.avro.HoodieAvroUtils
 import org.apache.hudi.common.table.{HoodieTableMetaClient, TableSchemaResolver}
 import org.apache.hudi.exception.HoodieException
+
 import org.apache.spark.sql.{AnalysisException, Row, SparkSession}
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.HoodieCatalogTable
@@ -97,7 +98,7 @@ case class AlterHoodieTableChangeColumnCommand(
   private def validateSchema(newSchema: Schema, metaClient: HoodieTableMetaClient): Unit = {
     val schemaUtil = new TableSchemaResolver(metaClient)
     val tableSchema = HoodieAvroUtils.createHoodieWriteSchema(schemaUtil.getTableAvroSchemaWithoutMetadataFields)
-    if (!AvroSchemaUtils.isSchemaCompatible(tableSchema, newSchema)) {
+    if (!TableSchemaResolver.isSchemaCompatible(tableSchema, newSchema)) {
       throw new HoodieException("Failed schema compatibility check for newSchema :" + newSchema +
         ", origin table schema :" + tableSchema + ", base path :" + metaClient.getBasePath)
     }

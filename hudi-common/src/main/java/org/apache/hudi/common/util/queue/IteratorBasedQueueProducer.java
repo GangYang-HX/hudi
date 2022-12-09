@@ -18,7 +18,6 @@
 
 package org.apache.hudi.common.util.queue;
 
-import org.apache.hudi.common.util.ClosableIterator;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -29,10 +28,11 @@ import java.util.Iterator;
  *
  * @param <I> Item type produced for the buffer.
  */
-public class IteratorBasedQueueProducer<I> implements HoodieProducer<I> {
+public class IteratorBasedQueueProducer<I> implements BoundedInMemoryQueueProducer<I> {
 
   private static final Logger LOG = LogManager.getLogger(IteratorBasedQueueProducer.class);
 
+  // input iterator for producing items in the buffer.
   private final Iterator<I> inputIterator;
 
   public IteratorBasedQueueProducer(Iterator<I> inputIterator) {
@@ -40,18 +40,11 @@ public class IteratorBasedQueueProducer<I> implements HoodieProducer<I> {
   }
 
   @Override
-  public void produce(HoodieMessageQueue<I, ?> queue) throws Exception {
+  public void produce(BoundedInMemoryQueue<I, ?> queue) throws Exception {
     LOG.info("starting to buffer records");
     while (inputIterator.hasNext()) {
       queue.insertRecord(inputIterator.next());
     }
     LOG.info("finished buffering records");
-  }
-
-  @Override
-  public void close() {
-    if (inputIterator instanceof ClosableIterator) {
-      ((ClosableIterator<I>) inputIterator).close();
-    }
   }
 }

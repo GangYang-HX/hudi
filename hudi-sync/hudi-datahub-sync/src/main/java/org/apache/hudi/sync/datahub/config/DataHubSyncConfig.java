@@ -25,13 +25,7 @@ import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.sync.common.HoodieSyncConfig;
 
 import com.beust.jcommander.Parameter;
-import com.beust.jcommander.ParametersDelegate;
 import datahub.client.rest.RestEmitter;
-
-import java.util.Properties;
-
-import static org.apache.hudi.sync.datahub.config.HoodieDataHubDatasetIdentifier.DEFAULT_DATAHUB_ENV;
-import static org.apache.hudi.sync.datahub.config.HoodieDataHubDatasetIdentifier.DEFAULT_HOODIE_DATAHUB_PLATFORM_NAME;
 
 public class DataHubSyncConfig extends HoodieSyncConfig {
 
@@ -55,72 +49,45 @@ public class DataHubSyncConfig extends HoodieSyncConfig {
       .noDefaultValue()
       .withDocumentation("Pluggable class to supply a DataHub REST emitter to connect to the DataHub instance. This overwrites other emitter configs.");
 
-  public static final ConfigProperty<String> META_SYNC_DATAHUB_DATAPLATFORM_NAME = ConfigProperty
-          .key("hoodie.meta.sync.datahub.dataplatform.name")
-          .defaultValue(DEFAULT_HOODIE_DATAHUB_PLATFORM_NAME)
-          .withDocumentation("String used to represent Hudi when creating its corresponding DataPlatform entity "
-                  + "within Datahub");
+  @Parameter(names = {"--identifier-class"}, description = "Pluggable class to help provide info to identify a DataHub Dataset.")
+  public String identifierClass;
 
-  public static final ConfigProperty<String> META_SYNC_DATAHUB_DATASET_ENV = ConfigProperty
-          .key("hoodie.meta.sync.datahub.dataset.env")
-          .defaultValue(DEFAULT_DATAHUB_ENV.name())
-          .withDocumentation("Environment to use when pushing entities to Datahub");
+  @Parameter(names = {"--emitter-server"}, description = "Server URL of the DataHub instance.")
+  public String emitterServer;
+
+  @Parameter(names = {"--emitter-token"}, description = "Auth token to connect to the DataHub instance.")
+  public String emitterToken;
+
+  @Parameter(names = {"--emitter-supplier-class"}, description = "Pluggable class to supply a DataHub REST emitter to connect to the DataHub instance. This overwrites other emitter configs.")
+  public String emitterSupplierClass;
+
+  @Parameter(names = {"--help", "-h"}, help = true)
+  public Boolean help = false;
 
   public final HoodieDataHubDatasetIdentifier datasetIdentifier;
 
-  public DataHubSyncConfig(Properties props) {
+  public DataHubSyncConfig() {
+    this(new TypedProperties());
+  }
+
+  public DataHubSyncConfig(TypedProperties props) {
     super(props);
-    String identifierClass = getStringOrDefault(META_SYNC_DATAHUB_DATASET_IDENTIFIER_CLASS);
-    datasetIdentifier = (HoodieDataHubDatasetIdentifier) ReflectionUtils.loadClass(identifierClass, new Class<?>[] {Properties.class}, props);
+    identifierClass = getStringOrDefault(META_SYNC_DATAHUB_DATASET_IDENTIFIER_CLASS);
+    emitterServer = getStringOrDefault(META_SYNC_DATAHUB_EMITTER_SERVER, null);
+    emitterToken = getStringOrDefault(META_SYNC_DATAHUB_EMITTER_TOKEN, null);
+    emitterSupplierClass = getStringOrDefault(META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS, null);
+
+    datasetIdentifier = (HoodieDataHubDatasetIdentifier) ReflectionUtils
+        .loadClass(identifierClass, new Class<?>[] {TypedProperties.class}, props);
   }
 
   public RestEmitter getRestEmitter() {
-    if (contains(META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS)) {
-      return ((DataHubEmitterSupplier) ReflectionUtils.loadClass(getString(META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS))).get();
-    } else if (contains(META_SYNC_DATAHUB_EMITTER_SERVER)) {
-      return RestEmitter.create(b -> b.server(getString(META_SYNC_DATAHUB_EMITTER_SERVER)).token(getStringOrDefault(META_SYNC_DATAHUB_EMITTER_TOKEN, null)));
+    if (emitterSupplierClass != null) {
+      return ((DataHubEmitterSupplier) ReflectionUtils.loadClass(emitterSupplierClass)).get();
+    } else if (emitterServer != null) {
+      return RestEmitter.create(b -> b.server(emitterServer).token(emitterToken));
     } else {
       return RestEmitter.createWithDefaults();
-    }
-  }
-
-  public static class DataHubSyncConfigParams {
-
-    @ParametersDelegate()
-    public final HoodieSyncConfigParams hoodieSyncConfigParams = new HoodieSyncConfigParams();
-
-    @Parameter(names = {"--identifier-class"}, description = "Pluggable class to help provide info to identify a DataHub Dataset.")
-    public String identifierClass;
-
-    @Parameter(names = {"--emitter-server"}, description = "Server URL of the DataHub instance.")
-    public String emitterServer;
-
-    @Parameter(names = {"--emitter-token"}, description = "Auth token to connect to the DataHub instance.")
-    public String emitterToken;
-
-    @Parameter(names = {"--emitter-supplier-class"}, description = "Pluggable class to supply a DataHub REST emitter to connect to the DataHub instance. This overwrites other emitter configs.")
-    public String emitterSupplierClass;
-
-    @Parameter(names = {"--data-platform-name"}, description = "String used to represent Hudi when creating its "
-            + "corresponding DataPlatform entity within Datahub")
-    public String dataPlatformName;
-
-    @Parameter(names = {"--dataset-env"}, description = "Which Datahub Environment to use when pushing entities")
-    public String datasetEnv;
-
-    public boolean isHelp() {
-      return hoodieSyncConfigParams.isHelp();
-    }
-
-    public Properties toProps() {
-      final TypedProperties props = hoodieSyncConfigParams.toProps();
-      props.setPropertyIfNonNull(META_SYNC_DATAHUB_DATASET_IDENTIFIER_CLASS.key(), identifierClass);
-      props.setPropertyIfNonNull(META_SYNC_DATAHUB_EMITTER_SERVER.key(), emitterServer);
-      props.setPropertyIfNonNull(META_SYNC_DATAHUB_EMITTER_TOKEN.key(), emitterToken);
-      props.setPropertyIfNonNull(META_SYNC_DATAHUB_EMITTER_SUPPLIER_CLASS.key(), emitterSupplierClass);
-      props.setPropertyIfNonNull(META_SYNC_DATAHUB_DATAPLATFORM_NAME.key(), dataPlatformName);
-      props.setPropertyIfNonNull(META_SYNC_DATAHUB_DATASET_ENV.key(), datasetEnv);
-      return props;
     }
   }
 }

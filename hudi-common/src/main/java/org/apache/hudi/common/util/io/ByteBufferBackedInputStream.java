@@ -19,7 +19,6 @@
 package org.apache.hudi.common.util.io;
 
 import javax.annotation.Nonnull;
-
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 

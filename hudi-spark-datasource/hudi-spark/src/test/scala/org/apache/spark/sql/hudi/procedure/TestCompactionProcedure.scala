@@ -19,9 +19,9 @@
 
 package org.apache.spark.sql.hudi.procedure
 
-import org.apache.hudi.common.table.timeline.HoodieInstant
+import org.apache.spark.sql.hudi.TestHoodieSqlBase
 
-class TestCompactionProcedure extends HoodieSparkProcedureTestBase {
+class TestCompactionProcedure extends TestHoodieSqlBase {
 
   test("Test Call run_compaction Procedure by Table") {
     withTempDir { tmp =>
@@ -48,52 +48,22 @@ class TestCompactionProcedure extends HoodieSparkProcedureTestBase {
       spark.sql(s"insert into $tableName values(4, 'a4', 10, 1000)")
       spark.sql(s"update $tableName set price = 11 where id = 1")
 
-      // Schedule the first compaction
-      val resultA = spark.sql(s"call run_compaction(op => 'schedule', table => '$tableName')")
-        .collect()
-        .map(row => Seq(row.getString(0), row.getInt(1), row.getString(2)))
-
+      spark.sql(s"call run_compaction(op => 'schedule', table => '$tableName')")
       spark.sql(s"update $tableName set price = 12 where id = 2")
-
-      // Schedule the second compaction
-      val resultB = spark.sql(s"call run_compaction('schedule', '$tableName')")
-        .collect()
-        .map(row => Seq(row.getString(0), row.getInt(1), row.getString(2)))
-
-      assertResult(1)(resultA.length)
-      assertResult(1)(resultB.length)
-      val showCompactionSql: String = s"call show_compaction(table => '$tableName', limit => 10)"
-      checkAnswer(showCompactionSql)(
-        resultA(0),
-        resultB(0)
-      )
-
-      val compactionRows = spark.sql(showCompactionSql).collect()
-      val timestamps = compactionRows.map(_.getString(0)).sorted
+      spark.sql(s"call run_compaction('schedule', '$tableName')")
+      val compactionRows = spark.sql(s"call show_compaction(table => '$tableName', limit => 10)").collect()
+      val timestamps = compactionRows.map(_.getString(0))
       assertResult(2)(timestamps.length)
 
-      // Execute the second scheduled compaction instant actually
-      checkAnswer(s"call run_compaction(op => 'run', table => '$tableName', timestamp => ${timestamps(1)})")(
-        Seq(resultB(0).head, resultB(0)(1), HoodieInstant.State.COMPLETED.name())
-      )
+      spark.sql(s"call run_compaction(op => 'run', table => '$tableName', timestamp => ${timestamps(1)})")
       checkAnswer(s"select id, name, price, ts from $tableName order by id")(
         Seq(1, "a1", 11.0, 1000),
         Seq(2, "a2", 12.0, 1000),
         Seq(3, "a3", 10.0, 1000),
         Seq(4, "a4", 10.0, 1000)
       )
-
-      // A compaction action eventually becomes commit when completed, so show_compaction
-      // can only see the first scheduled compaction instant
-      val resultC = spark.sql(s"call show_compaction('$tableName')")
-        .collect()
-        .map(row => Seq(row.getString(0), row.getInt(1), row.getString(2)))
-      assertResult(1)(resultC.length)
-      assertResult(resultA)(resultC)
-
-      checkAnswer(s"call run_compaction(op => 'run', table => '$tableName', timestamp => ${timestamps(0)})")(
-        Seq(resultA(0).head, resultA(0)(1), HoodieInstant.State.COMPLETED.name())
-      )
+      assertResult(1)(spark.sql(s"call show_compaction('$tableName')").collect().length)
+      spark.sql(s"call run_compaction(op => 'run', table => '$tableName', timestamp => ${timestamps(0)})")
       checkAnswer(s"select id, name, price, ts from $tableName order by id")(
         Seq(1, "a1", 11.0, 1000),
         Seq(2, "a2", 12.0, 1000),
@@ -128,40 +98,25 @@ class TestCompactionProcedure extends HoodieSparkProcedureTestBase {
       spark.sql(s"insert into $tableName values(3, 'a3', 10, 1000)")
       spark.sql(s"update $tableName set price = 11 where id = 1")
 
-      checkAnswer(s"call run_compaction(op => 'run', path => '${tmp.getCanonicalPath}')")()
+      spark.sql(s"call run_compaction(op => 'run', path => '${tmp.getCanonicalPath}')")
       checkAnswer(s"select id, name, price, ts from $tableName order by id")(
         Seq(1, "a1", 11.0, 1000),
         Seq(2, "a2", 10.0, 1000),
         Seq(3, "a3", 10.0, 1000)
       )
       assertResult(0)(spark.sql(s"call show_compaction(path => '${tmp.getCanonicalPath}')").collect().length)
-
+      // schedule compaction first
       spark.sql(s"update $tableName set price = 12 where id = 1")
+      spark.sql(s"call run_compaction(op=> 'schedule', path => '${tmp.getCanonicalPath}')")
 
-      // Schedule the first compaction
-      val resultA = spark.sql(s"call run_compaction(op=> 'schedule', path => '${tmp.getCanonicalPath}')")
-        .collect()
-        .map(row => Seq(row.getString(0), row.getInt(1), row.getString(2)))
-
+      // schedule compaction second
       spark.sql(s"update $tableName set price = 12 where id = 2")
+      spark.sql(s"call run_compaction(op => 'schedule', path => '${tmp.getCanonicalPath}')")
 
-      // Schedule the second compaction
-      val resultB = spark.sql(s"call run_compaction(op => 'schedule', path => '${tmp.getCanonicalPath}')")
-        .collect()
-        .map(row => Seq(row.getString(0), row.getInt(1), row.getString(2)))
-
-      assertResult(1)(resultA.length)
-      assertResult(1)(resultB.length)
-      checkAnswer(s"call show_compaction(path => '${tmp.getCanonicalPath}')")(
-        resultA(0),
-        resultB(0)
-      )
-
-      // Run compaction for all the scheduled compaction
-      checkAnswer(s"call run_compaction(op => 'run', path => '${tmp.getCanonicalPath}')")(
-        Seq(resultA(0).head, resultA(0)(1), HoodieInstant.State.COMPLETED.name()),
-        Seq(resultB(0).head, resultB(0)(1), HoodieInstant.State.COMPLETED.name())
-      )
+      // show compaction
+      assertResult(2)(spark.sql(s"call show_compaction(path => '${tmp.getCanonicalPath}')").collect().length)
+      // run compaction for all the scheduled compaction
+      spark.sql(s"call run_compaction(op => 'run', path => '${tmp.getCanonicalPath}')")
 
       checkAnswer(s"select id, name, price, ts from $tableName order by id")(
         Seq(1, "a1", 12.0, 1000),

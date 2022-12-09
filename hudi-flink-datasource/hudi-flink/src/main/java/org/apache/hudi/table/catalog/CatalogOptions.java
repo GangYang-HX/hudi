@@ -18,22 +18,17 @@
 
 package org.apache.hudi.table.catalog;
 
-import org.apache.hudi.configuration.OptionsResolver;
-
 import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.ConfigOptions;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.table.catalog.CommonCatalogOptions;
 
-import java.util.List;
 import java.util.Map;
 
 /**
  * Hoodie catalog options.
  */
 public class CatalogOptions {
-  public static final String HIVE_SITE_FILE = "hive-site.xml";
-  public static final String DEFAULT_DB = "default";
 
   public static final ConfigOption<String> CATALOG_PATH =
       ConfigOptions.key("catalog.path")
@@ -46,29 +41,6 @@ public class CatalogOptions {
       ConfigOptions.key(CommonCatalogOptions.DEFAULT_DATABASE_KEY)
           .stringType()
           .defaultValue("default");
-
-  public static final ConfigOption<String> HIVE_CONF_DIR = ConfigOptions
-      .key("hive.conf.dir")
-      .stringType()
-      .noDefaultValue();
-
-  public static final ConfigOption<String> MODE = ConfigOptions
-      .key("mode")
-      .stringType()
-      .defaultValue("dfs");
-
-  public static final ConfigOption<Boolean> TABLE_EXTERNAL = ConfigOptions
-      .key("table.external")
-      .booleanType()
-      .defaultValue(false)
-      .withDescription("Whether the table is external, default false");
-
-  /**
-   * Returns all the config options.
-   */
-  public static List<ConfigOption<?>> allOptions() {
-    return OptionsResolver.allOptions(CatalogOptions.class);
-  }
 
   /**
    * Returns all the common table options that can be shared.

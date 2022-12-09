@@ -30,7 +30,6 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -148,7 +147,7 @@ public class TestClusteringUtils extends HoodieCommonTestHarness {
 
   private FileSlice generateFileSlice(String partitionPath, String fileId, String baseInstant) {
     FileSlice fs = new FileSlice(new HoodieFileGroupId(partitionPath, fileId), baseInstant);
-    fs.setBaseFile(new HoodieBaseFile(FSUtils.makeBaseFileName(baseInstant, "1-0-1", fileId)));
+    fs.setBaseFile(new HoodieBaseFile(FSUtils.makeDataFileName(baseInstant, "1-0-1", fileId)));
     return fs;
   }
 

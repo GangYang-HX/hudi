@@ -32,8 +32,6 @@ import org.apache.hudi.table.HoodieTable;
 
 import org.apache.avro.generic.GenericRecord;
 
-import javax.annotation.concurrent.NotThreadSafe;
-
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
@@ -47,7 +45,6 @@ import java.util.Queue;
  * The implementation performs a merge-sort by comparing the key of the record being written to the list of
  * keys in newRecordKeys (sorted in-memory).
  */
-@NotThreadSafe
 public class HoodieSortedMergeHandle<T extends HoodieRecordPayload, I, K, O> extends HoodieMergeHandle<T, I, K, O> {
 
   private final Queue<String> newRecordKeysSorted = new PriorityQueue<>();
@@ -94,9 +91,9 @@ public class HoodieSortedMergeHandle<T extends HoodieRecordPayload, I, K, O> ext
       }
       try {
         if (useWriterSchemaForCompaction) {
-          writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(writeSchemaWithMetaFields, config.getProps()));
+          writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(tableSchemaWithMetaFields, config.getProps()));
         } else {
-          writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(writeSchema, config.getProps()));
+          writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(tableSchema, config.getProps()));
         }
         insertRecordsWritten++;
         writtenRecordKeys.add(keyToPreWrite);
@@ -117,9 +114,9 @@ public class HoodieSortedMergeHandle<T extends HoodieRecordPayload, I, K, O> ext
         HoodieRecord<T> hoodieRecord = keyToNewRecords.get(key);
         if (!writtenRecordKeys.contains(hoodieRecord.getRecordKey())) {
           if (useWriterSchemaForCompaction) {
-            writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(writeSchemaWithMetaFields, config.getProps()));
+            writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(tableSchemaWithMetaFields, config.getProps()));
           } else {
-            writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(writeSchema, config.getProps()));
+            writeRecord(hoodieRecord, hoodieRecord.getData().getInsertValue(tableSchema, config.getProps()));
           }
           insertRecordsWritten++;
         }

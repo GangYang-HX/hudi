@@ -18,8 +18,8 @@
 
 package org.apache.hudi.internal.schema;
 
-import org.apache.hudi.internal.schema.Type.NestedType;
 import org.apache.hudi.internal.schema.Type.PrimitiveType;
+import org.apache.hudi.internal.schema.Type.NestedType;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -30,16 +30,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
-/**
- * Types supported in schema evolution.
- */
 public class Types {
   private Types() {
   }
 
-  /**
-   * Boolean primitive type.
-   */
   public static class BooleanType extends PrimitiveType {
     private static final BooleanType INSTANCE = new BooleanType();
 
@@ -58,9 +52,6 @@ public class Types {
     }
   }
 
-  /**
-   * Integer primitive type.
-   */
   public static class IntType extends PrimitiveType {
     private static final IntType INSTANCE = new IntType();
 
@@ -79,9 +70,6 @@ public class Types {
     }
   }
 
-  /**
-   * Long primitive type.
-   */
   public static class LongType extends PrimitiveType {
     private static final LongType INSTANCE = new LongType();
 
@@ -100,9 +88,6 @@ public class Types {
     }
   }
 
-  /**
-   * Float primitive type.
-   */
   public static class FloatType extends PrimitiveType {
     private static final FloatType INSTANCE = new FloatType();
 
@@ -121,9 +106,6 @@ public class Types {
     }
   }
 
-  /**
-   * Double primitive type.
-   */
   public static class DoubleType extends PrimitiveType {
     private static final DoubleType INSTANCE = new DoubleType();
 
@@ -142,9 +124,6 @@ public class Types {
     }
   }
 
-  /**
-   * Date primitive type.
-   */
   public static class DateType extends PrimitiveType {
     private static final DateType INSTANCE = new DateType();
 
@@ -163,9 +142,6 @@ public class Types {
     }
   }
 
-  /**
-   * Time primitive type.
-   */
   public static class TimeType extends PrimitiveType {
     private static final TimeType INSTANCE = new TimeType();
 
@@ -187,9 +163,6 @@ public class Types {
     }
   }
 
-  /**
-   * Time primitive type.
-   */
   public static class TimestampType extends PrimitiveType {
     private static final TimestampType INSTANCE = new TimestampType();
 
@@ -211,9 +184,6 @@ public class Types {
     }
   }
 
-  /**
-   * String primitive type.
-   */
   public static class StringType extends PrimitiveType {
     private static final StringType INSTANCE = new StringType();
 
@@ -232,9 +202,6 @@ public class Types {
     }
   }
 
-  /**
-   * Binary primitive type.
-   */
   public static class BinaryType extends PrimitiveType {
     private static final BinaryType INSTANCE = new BinaryType();
 
@@ -253,9 +220,6 @@ public class Types {
     }
   }
 
-  /**
-   * Fixed primitive type.
-   */
   public static class FixedType extends PrimitiveType {
     public static FixedType getFixed(int size) {
       return new FixedType(size);
@@ -299,9 +263,6 @@ public class Types {
     }
   }
 
-  /**
-   * Decimal primitive type.
-   */
   public static class DecimalType extends PrimitiveType {
     public static DecimalType get(int precision, int scale) {
       return new DecimalType(precision, scale);
@@ -384,9 +345,6 @@ public class Types {
     }
   }
 
-  /**
-   * UUID primitive type.
-   */
   public static class UUIDType extends PrimitiveType {
     private static final UUIDType INSTANCE = new UUIDType();
 
@@ -498,24 +456,26 @@ public class Types {
     }
   }
 
-  /**
-   * Record nested type.
-   */
   public static class RecordType extends NestedType {
-    // NOTE: This field is necessary to provide for lossless conversion b/w Avro and
-    //       InternalSchema and back (Avro unfortunately relies not only on structural equivalence of
-    //       schemas but also corresponding Record type's "name" when evaluating their compatibility);
-    //       This field is nullable
-    private final String name;
+
+    public static RecordType get(List<Field> fields) {
+      return new RecordType(fields);
+    }
+
+    public static RecordType get(Field... fields) {
+      return new RecordType(Arrays.asList(fields));
+    }
 
     private final Field[] fields;
 
     private transient Map<String, Field> nameToFields = null;
     private transient Map<Integer, Field> idToFields = null;
 
-    private RecordType(List<Field> fields, String name) {
-      this.name = name;
-      this.fields = fields.toArray(new Field[0]);
+    private RecordType(List<Field> fields) {
+      this.fields = new Field[fields.size()];
+      for (int i = 0; i < this.fields.length; i += 1) {
+        this.fields[i] = fields.get(i);
+      }
     }
 
     @Override
@@ -553,10 +513,6 @@ public class Types {
       return null;
     }
 
-    public String name() {
-      return name;
-    }
-
     @Override
     public TypeID typeId() {
       return TypeID.RECORD;
@@ -569,8 +525,6 @@ public class Types {
 
     @Override
     public boolean equals(Object o) {
-      // NOTE: We're not comparing {@code RecordType}'s names here intentionally
-      //       relying exclusively on structural equivalence
       if (this == o) {
         return true;
       } else if (!(o instanceof RecordType)) {
@@ -583,30 +537,13 @@ public class Types {
 
     @Override
     public int hashCode() {
-      // NOTE: {@code hashCode} has to match for objects for which {@code equals} returns true,
-      //       hence we don't hash the {@code name} in here
       return Objects.hash(Field.class, Arrays.hashCode(fields));
-    }
-
-    public static RecordType get(List<Field> fields) {
-      return new RecordType(fields, null);
-    }
-
-    public static RecordType get(List<Field> fields, String recordName) {
-      return new RecordType(fields, recordName);
-    }
-
-    public static RecordType get(Field... fields) {
-      return new RecordType(Arrays.asList(fields), null);
     }
   }
 
-  /**
-   * Array nested type.
-   */
   public static class ArrayType extends NestedType {
     public static ArrayType get(int elementId, boolean isOptional, Type elementType) {
-      return new ArrayType(Field.get(elementId, isOptional, "element", elementType));
+      return new ArrayType(Field.get(elementId, isOptional,"element", elementType));
     }
 
     private final Field elementField;
@@ -675,9 +612,6 @@ public class Types {
     }
   }
 
-  /**
-   * Map nested type.
-   */
   public static class MapType extends NestedType {
 
     public static MapType get(int keyId, int valueId, Type keyType, Type valueType) {

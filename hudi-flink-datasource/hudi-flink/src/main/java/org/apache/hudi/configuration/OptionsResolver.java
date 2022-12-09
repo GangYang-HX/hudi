@@ -18,23 +18,15 @@
 
 package org.apache.hudi.configuration;
 
-import org.apache.hudi.common.config.HoodieCommonConfig;
 import org.apache.hudi.common.model.DefaultHoodieRecordPayload;
 import org.apache.hudi.common.model.WriteOperationType;
-import org.apache.hudi.common.table.cdc.HoodieCDCSupplementalLoggingMode;
 import org.apache.hudi.common.util.StringUtils;
-import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.index.HoodieIndex;
 import org.apache.hudi.table.format.FilePathUtils;
 
-import org.apache.flink.configuration.ConfigOption;
 import org.apache.flink.configuration.Configuration;
 
-import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * Tool helping to resolve the flink options {@link FlinkOptions}.
@@ -54,7 +46,7 @@ public class OptionsResolver {
     // 1. inline clustering is supported for COW table;
     // 2. async clustering is supported for both COW and MOR table
     return isCowTable(conf) && isInsertOperation(conf) && !conf.getBoolean(FlinkOptions.INSERT_CLUSTER)
-        || needsScheduleClustering(conf);
+            || needsScheduleClustering(conf);
   }
 
   /**
@@ -72,14 +64,6 @@ public class OptionsResolver {
     return conf.getString(FlinkOptions.TABLE_TYPE)
         .toUpperCase(Locale.ROOT)
         .equals(FlinkOptions.TABLE_TYPE_MERGE_ON_READ);
-  }
-
-  /**
-   * Returns whether it is a MERGE_ON_READ table.
-   */
-  public static boolean isMorTable(Map<String, String> options) {
-    return options.getOrDefault(FlinkOptions.TABLE_TYPE.key(),
-        FlinkOptions.TABLE_TYPE.defaultValue()).equalsIgnoreCase(FlinkOptions.TABLE_TYPE_MERGE_ON_READ);
   }
 
   /**
@@ -123,7 +107,7 @@ public class OptionsResolver {
   }
 
   public static boolean isBucketIndexType(Configuration conf) {
-    return conf.getString(FlinkOptions.INDEX_TYPE).equalsIgnoreCase(HoodieIndex.IndexType.BUCKET.name());
+    return conf.getString(FlinkOptions.INDEX_TYPE).equals(HoodieIndex.IndexType.BUCKET.name());
   }
 
   /**
@@ -143,7 +127,7 @@ public class OptionsResolver {
    */
   public static boolean needsAsyncCompaction(Configuration conf) {
     return OptionsResolver.isMorTable(conf)
-        && conf.getBoolean(FlinkOptions.COMPACTION_ASYNC_ENABLED);
+            && conf.getBoolean(FlinkOptions.COMPACTION_ASYNC_ENABLED);
   }
 
   /**
@@ -153,7 +137,7 @@ public class OptionsResolver {
    */
   public static boolean needsScheduleCompaction(Configuration conf) {
     return OptionsResolver.isMorTable(conf)
-        && conf.getBoolean(FlinkOptions.COMPACTION_SCHEDULE_ENABLED);
+            && conf.getBoolean(FlinkOptions.COMPACTION_SCHEDULE_ENABLED);
   }
 
   /**
@@ -179,66 +163,5 @@ public class OptionsResolver {
    */
   public static boolean sortClusteringEnabled(Configuration conf) {
     return !StringUtils.isNullOrEmpty(conf.getString(FlinkOptions.CLUSTERING_SORT_COLUMNS));
-  }
-
-  /**
-   * Returns whether the operation is INSERT OVERWRITE (table or partition).
-   */
-  public static boolean isInsertOverwrite(Configuration conf) {
-    return conf.getString(FlinkOptions.OPERATION).equals(WriteOperationType.INSERT_OVERWRITE_TABLE.value())
-        || conf.getString(FlinkOptions.OPERATION).equals(WriteOperationType.INSERT_OVERWRITE.value());
-  }
-
-  /**
-   * Returns whether the read start commit is specific commit timestamp.
-   */
-  public static boolean isSpecificStartCommit(Configuration conf) {
-    return conf.getOptional(FlinkOptions.READ_START_COMMIT).isPresent()
-        && !conf.get(FlinkOptions.READ_START_COMMIT).equalsIgnoreCase(FlinkOptions.START_COMMIT_EARLIEST);
-  }
-
-  /**
-   * Returns true if there are no explicit start and end commits.
-   */
-  public static boolean hasNoSpecificReadCommits(Configuration conf) {
-    return !conf.contains(FlinkOptions.READ_START_COMMIT) && !conf.contains(FlinkOptions.READ_END_COMMIT);
-  }
-
-  /**
-   * Returns the supplemental logging mode.
-   */
-  public static HoodieCDCSupplementalLoggingMode getCDCSupplementalLoggingMode(Configuration conf) {
-    String mode = conf.getString(FlinkOptions.SUPPLEMENTAL_LOGGING_MODE);
-    return HoodieCDCSupplementalLoggingMode.parse(mode);
-  }
-
-  /**
-   * Returns whether comprehensive schema evolution enabled.
-   */
-  public static boolean isSchemaEvolutionEnabled(Configuration conf) {
-    return conf.getBoolean(HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE.key(), HoodieCommonConfig.SCHEMA_EVOLUTION_ENABLE.defaultValue());
-  }
-
-  // -------------------------------------------------------------------------
-  //  Utilities
-  // -------------------------------------------------------------------------
-
-  /**
-   * Returns all the config options with the given class {@code clazz}.
-   */
-  public static List<ConfigOption<?>> allOptions(Class<?> clazz) {
-    Field[] declaredFields = clazz.getDeclaredFields();
-    List<ConfigOption<?>> options = new ArrayList<>();
-    for (Field field : declaredFields) {
-      if (java.lang.reflect.Modifier.isStatic(field.getModifiers())
-          && field.getType().equals(ConfigOption.class)) {
-        try {
-          options.add((ConfigOption<?>) field.get(ConfigOption.class));
-        } catch (IllegalAccessException e) {
-          throw new HoodieException("Error while fetching static config option", e);
-        }
-      }
-    }
-    return options;
   }
 }

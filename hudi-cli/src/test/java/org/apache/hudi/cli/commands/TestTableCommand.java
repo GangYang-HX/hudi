@@ -22,7 +22,6 @@ import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.cli.HoodieCLI;
 import org.apache.hudi.cli.functional.CLIFunctionalTestHarness;
 import org.apache.hudi.cli.testutils.HoodieTestCommitMetadataGenerator;
-import org.apache.hudi.cli.testutils.ShellEvaluationResultUtil;
 import org.apache.hudi.common.fs.ConsistencyGuardConfig;
 import org.apache.hudi.common.model.HoodieCommitMetadata;
 import org.apache.hudi.common.model.HoodieTableType;
@@ -39,9 +38,7 @@ import org.apache.hadoop.fs.Path;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.shell.Shell;
+import org.springframework.shell.core.CommandResult;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -63,11 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Test Cases for {@link TableCommand}.
  */
 @Tag("functional")
-@SpringBootTest(properties = {"spring.shell.interactive.enabled=false", "spring.shell.command.script.enabled=false"})
 public class TestTableCommand extends CLIFunctionalTestHarness {
-
-  @Autowired
-  private Shell shell;
 
   private String tableName;
   private String tablePath;
@@ -90,8 +83,9 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
    * Method to create a table for connect or desc.
    */
   private boolean prepareTable() {
-    Object result = shell.evaluate(() -> "create --path " + tablePath + " --tableName " + tableName);
-    return ShellEvaluationResultUtil.isSuccess(result);
+    CommandResult cr = shell().executeCommand(
+        "create --path " + tablePath + " --tableName " + tableName);
+    return cr.isSuccess();
   }
 
   /**
@@ -103,9 +97,10 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
     assertTrue(prepareTable());
 
     // Test connect with specified values
-    Object result = shell.evaluate(() -> "connect --path " + tablePath + " --initialCheckIntervalMs 3000 "
+    CommandResult cr = shell().executeCommand(
+        "connect --path " + tablePath + " --initialCheckIntervalMs 3000 "
             + "--maxWaitIntervalMs 40000 --maxCheckIntervalMs 8");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    assertTrue(cr.isSuccess());
 
     // Check specified values
     ConsistencyGuardConfig conf = HoodieCLI.consistencyGuardConfig;
@@ -141,10 +136,11 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
   @Test
   public void testCreateWithSpecifiedValues() {
     // Test create with specified values
-    Object result = shell.evaluate(() -> "create --path " + tablePath + " --tableName " + tableName
+    CommandResult cr = shell().executeCommand(
+        "create --path " + tablePath + " --tableName " + tableName
             + " --tableType MERGE_ON_READ --archiveLogFolder archive");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
-    assertEquals("Metadata for table " + tableName + " loaded", result.toString());
+    assertTrue(cr.isSuccess());
+    assertEquals("Metadata for table " + tableName + " loaded", cr.getResult().toString());
     HoodieTableMetaClient client = HoodieCLI.getTableMetaClient();
     assertEquals(metaPath + Path.SEPARATOR + "archive", client.getArchivePath());
     assertEquals(tablePath, client.getBasePath());
@@ -161,13 +157,13 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
     assertTrue(prepareTable());
 
     // Test desc table
-    Object result = shell.evaluate(() -> "desc");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    CommandResult cr = shell().executeCommand("desc");
+    assertTrue(cr.isSuccess());
 
     // check table's basePath metaPath and type
-    assertTrue(result.toString().contains(tablePath));
-    assertTrue(result.toString().contains(metaPath));
-    assertTrue(result.toString().contains("COPY_ON_WRITE"));
+    assertTrue(cr.getResult().toString().contains(tablePath));
+    assertTrue(cr.getResult().toString().contains(metaPath));
+    assertTrue(cr.getResult().toString().contains("COPY_ON_WRITE"));
   }
 
   /**
@@ -205,8 +201,8 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
         HoodieCLI.getTableMetaClient().getActiveTimeline().getCommitTimeline().filterCompletedInstants();
     assertEquals(0, timeline.countInstants(), "there should have no instant");
 
-    Object result = shell.evaluate(() -> command);
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    CommandResult cr = shell().executeCommand(command);
+    assertTrue(cr.isSuccess());
 
     timeline =
         HoodieCLI.getTableMetaClient().getActiveTimeline().getCommitTimeline().filterCompletedInstants();
@@ -238,10 +234,10 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
 
     generateData(schemaStr);
 
-    Object result = shell.evaluate(() -> "fetch table schema");
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    CommandResult cr = shell().executeCommand("fetch table schema");
+    assertTrue(cr.isSuccess());
 
-    String actualSchemaStr = result.toString().substring(result.toString().indexOf("{"));
+    String actualSchemaStr = cr.getResult().toString().substring(cr.getResult().toString().indexOf("{"));
     Schema actualSchema = new Schema.Parser().parse(actualSchemaStr);
 
     Schema expectedSchema = new Schema.Parser().parse(schemaStr);
@@ -249,8 +245,8 @@ public class TestTableCommand extends CLIFunctionalTestHarness {
     assertEquals(actualSchema, expectedSchema);
 
     File file = File.createTempFile("temp", null);
-    result = shell.evaluate(() -> "fetch table schema --outputFilePath " + file.getAbsolutePath());
-    assertTrue(ShellEvaluationResultUtil.isSuccess(result));
+    cr = shell().executeCommand("fetch table schema --outputFilePath " + file.getAbsolutePath());
+    assertTrue(cr.isSuccess());
 
     actualSchemaStr = getFileContent(file.getAbsolutePath());
     actualSchema = new Schema.Parser().parse(actualSchemaStr);

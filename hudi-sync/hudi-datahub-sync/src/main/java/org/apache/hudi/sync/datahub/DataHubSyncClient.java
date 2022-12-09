@@ -19,11 +19,11 @@
 
 package org.apache.hudi.sync.datahub;
 
-import com.linkedin.common.Status;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.TableSchemaResolver;
+import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.sync.common.HoodieSyncClient;
+import org.apache.hudi.sync.common.AbstractSyncHoodieClient;
 import org.apache.hudi.sync.common.HoodieSyncException;
 import org.apache.hudi.sync.datahub.config.DataHubSyncConfig;
 
@@ -51,22 +51,49 @@ import datahub.client.rest.RestEmitter;
 import datahub.event.MetadataChangeProposalWrapper;
 import org.apache.avro.AvroTypeException;
 import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.parquet.schema.MessageType;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class DataHubSyncClient extends HoodieSyncClient {
+public class DataHubSyncClient extends AbstractSyncHoodieClient {
 
-  protected final DataHubSyncConfig config;
+  private final HoodieTimeline activeTimeline;
+  private final DataHubSyncConfig syncConfig;
+  private final Configuration hadoopConf;
   private final DatasetUrn datasetUrn;
-  private static final Status SOFT_DELETE_FALSE = new Status().setRemoved(false);
 
-  public DataHubSyncClient(DataHubSyncConfig config) {
-    super(config);
-    this.config = config;
-    this.datasetUrn = config.datasetIdentifier.getDatasetUrn();
+  public DataHubSyncClient(DataHubSyncConfig syncConfig, Configuration hadoopConf, FileSystem fs) {
+    super(syncConfig.basePath, syncConfig.assumeDatePartitioning, syncConfig.useFileListingFromMetadata, false, fs);
+    this.syncConfig = syncConfig;
+    this.hadoopConf = hadoopConf;
+    this.datasetUrn = syncConfig.datasetIdentifier.getDatasetUrn();
+    this.activeTimeline = metaClient.getActiveTimeline().getCommitsTimeline().filterCompletedInstants();
+  }
+
+  @Override
+  public void createTable(String tableName,
+      MessageType storageSchema,
+      String inputFormatClass,
+      String outputFormatClass,
+      String serdeClass,
+      Map<String, String> serdeProperties,
+      Map<String, String> tableProperties) {
+    throw new UnsupportedOperationException("Not supported: `createTable`");
+  }
+
+  @Override
+  public boolean doesTableExist(String tableName) {
+    return tableExists(tableName);
+  }
+
+  @Override
+  public boolean tableExists(String tableName) {
+    throw new UnsupportedOperationException("Not supported: `tableExists`");
   }
 
   @Override
@@ -76,47 +103,88 @@ public class DataHubSyncClient extends HoodieSyncClient {
 
   @Override
   public void updateLastCommitTimeSynced(String tableName) {
-    updateTableProperties(tableName, Collections.singletonMap(HOODIE_LAST_COMMIT_TIME_SYNC, getActiveTimeline().lastInstant().get().getTimestamp()));
+    updateTableProperties(tableName, Collections.singletonMap(HOODIE_LAST_COMMIT_TIME_SYNC, activeTimeline.lastInstant().get().getTimestamp()));
+  }
+
+  @Override
+  public Option<String> getLastReplicatedTime(String tableName) {
+    throw new UnsupportedOperationException("Not supported: `getLastReplicatedTime`");
+  }
+
+  @Override
+  public void updateLastReplicatedTimeStamp(String tableName, String timeStamp) {
+    throw new UnsupportedOperationException("Not supported: `updateLastReplicatedTimeStamp`");
+  }
+
+  @Override
+  public void deleteLastReplicatedTimeStamp(String tableName) {
+    throw new UnsupportedOperationException("Not supported: `deleteLastReplicatedTimeStamp`");
+  }
+
+  @Override
+  public void addPartitionsToTable(String tableName, List<String> partitionsToAdd) {
+    throw new UnsupportedOperationException("Not supported: `addPartitionsToTable`");
+  }
+
+  @Override
+  public void updatePartitionsToTable(String tableName, List<String> changedPartitions) {
+    throw new UnsupportedOperationException("Not supported: `updatePartitionsToTable`");
+  }
+
+  @Override
+  public void dropPartitions(String tableName, List<String> partitionsToDrop) {
+    throw new UnsupportedOperationException("Not supported: `dropPartitions`");
   }
 
   @Override
   public void updateTableProperties(String tableName, Map<String, String> tableProperties) {
     MetadataChangeProposalWrapper propertiesChangeProposal = MetadataChangeProposalWrapper.builder()
-            .entityType("dataset")
-            .entityUrn(datasetUrn)
-            .upsert()
-            .aspect(new DatasetProperties().setCustomProperties(new StringMap(tableProperties)))
-            .build();
+        .entityType("dataset")
+        .entityUrn(datasetUrn)
+        .upsert()
+        .aspect(new DatasetProperties().setCustomProperties(new StringMap(tableProperties)))
+        .build();
 
-    DatahubResponseLogger responseLogger = new DatahubResponseLogger();
-
-    try (RestEmitter emitter = config.getRestEmitter()) {
-      emitter.emit(propertiesChangeProposal, responseLogger).get();
+    try (RestEmitter emitter = syncConfig.getRestEmitter()) {
+      emitter.emit(propertiesChangeProposal, null).get();
     } catch (Exception e) {
-      throw new HoodieDataHubSyncException("Fail to change properties for Dataset " + datasetUrn + ": "
-              + tableProperties, e);
+      throw new HoodieDataHubSyncException("Fail to change properties for Dataset " + datasetUrn + ": " + tableProperties, e);
     }
   }
 
-  @Override
-  public void updateTableSchema(String tableName, MessageType schema) {
-    try (RestEmitter emitter = config.getRestEmitter()) {
-      DatahubResponseLogger responseLogger = new DatahubResponseLogger();
-      MetadataChangeProposalWrapper schemaChange = createSchemaMetadataUpdate(tableName);
-      emitter.emit(schemaChange, responseLogger).get();
+  public void updateTableDefinition(String tableName) {
+    Schema avroSchema = getAvroSchemaWithoutMetadataFields(metaClient);
+    List<SchemaField> fields = avroSchema.getFields().stream().map(f -> new SchemaField()
+        .setFieldPath(f.name())
+        .setType(toSchemaFieldDataType(f.schema().getType()))
+        .setDescription(f.doc(), SetMode.IGNORE_NULL)
+        .setNativeDataType(f.schema().getType().getName())).collect(Collectors.toList());
 
-      // When updating an entity, it is ncessary to set its soft-delete status to false, or else the update won't get
-      // reflected in the UI.
-      MetadataChangeProposalWrapper softDeleteUndoProposal = createUndoSoftDelete();
-      emitter.emit(softDeleteUndoProposal, responseLogger).get();
+    final SchemaMetadata.PlatformSchema platformSchema = new SchemaMetadata.PlatformSchema();
+    platformSchema.setOtherSchema(new OtherSchema().setRawSchema(avroSchema.toString()));
+    MetadataChangeProposalWrapper schemaChangeProposal = MetadataChangeProposalWrapper.builder()
+        .entityType("dataset")
+        .entityUrn(datasetUrn)
+        .upsert()
+        .aspect(new SchemaMetadata()
+            .setSchemaName(tableName)
+            .setVersion(0)
+            .setHash("")
+            .setPlatform(datasetUrn.getPlatformEntity())
+            .setPlatformSchema(platformSchema)
+            .setFields(new SchemaFieldArray(fields)))
+        .build();
+
+    try (RestEmitter emitter = syncConfig.getRestEmitter()) {
+      emitter.emit(schemaChangeProposal, null).get();
     } catch (Exception e) {
       throw new HoodieDataHubSyncException("Fail to change schema for Dataset " + datasetUrn, e);
     }
   }
 
   @Override
-  public Map<String, String> getMetastoreSchema(String tableName) {
-    throw new UnsupportedOperationException("Not supported: `getMetastoreSchema`");
+  public Map<String, String> getTableSchema(String tableName) {
+    throw new UnsupportedOperationException("Not supported: `getTableSchema`");
   }
 
   @Override
@@ -124,43 +192,7 @@ public class DataHubSyncClient extends HoodieSyncClient {
     // no op;
   }
 
-  private MetadataChangeProposalWrapper createUndoSoftDelete() {
-    MetadataChangeProposalWrapper softDeleteUndoProposal = MetadataChangeProposalWrapper.builder()
-            .entityType("dataset")
-            .entityUrn(datasetUrn)
-            .upsert()
-            .aspect(SOFT_DELETE_FALSE)
-            .aspectName("status")
-            .build();
-    return softDeleteUndoProposal;
-  }
-
-  private MetadataChangeProposalWrapper createSchemaMetadataUpdate(String tableName) {
-    Schema avroSchema = getAvroSchemaWithoutMetadataFields(metaClient);
-    List<SchemaField> fields = avroSchema.getFields().stream().map(f -> new SchemaField()
-            .setFieldPath(f.name())
-            .setType(toSchemaFieldDataType(f.schema().getType()))
-            .setDescription(f.doc(), SetMode.IGNORE_NULL)
-            .setNativeDataType(f.schema().getType().getName())).collect(Collectors.toList());
-
-    final SchemaMetadata.PlatformSchema platformSchema = new SchemaMetadata.PlatformSchema();
-    platformSchema.setOtherSchema(new OtherSchema().setRawSchema(avroSchema.toString()));
-
-    return MetadataChangeProposalWrapper.builder()
-            .entityType("dataset")
-            .entityUrn(datasetUrn)
-            .upsert()
-            .aspect(new SchemaMetadata()
-                    .setSchemaName(tableName)
-                    .setVersion(0)
-                    .setHash("")
-                    .setPlatform(datasetUrn.getPlatformEntity())
-                    .setPlatformSchema(platformSchema)
-                    .setFields(new SchemaFieldArray(fields)))
-            .build();
-  }
-
-  Schema getAvroSchemaWithoutMetadataFields(HoodieTableMetaClient metaClient) {
+  static Schema getAvroSchemaWithoutMetadataFields(HoodieTableMetaClient metaClient) {
     try {
       return new TableSchemaResolver(metaClient).getTableAvroSchema(true);
     } catch (Exception e) {

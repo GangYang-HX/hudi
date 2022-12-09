@@ -18,7 +18,6 @@
 
 package org.apache.hudi.hadoop.utils;
 
-import org.apache.avro.AvroRuntimeException;
 import org.apache.avro.JsonProperties;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -30,7 +29,6 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.serde2.io.DateWritable;
 import org.apache.hadoop.hive.serde2.io.DoubleWritable;
 import org.apache.hadoop.hive.serde2.io.HiveDecimalWritable;
-import org.apache.hadoop.hive.serde2.io.TimestampWritable;
 import org.apache.hadoop.hive.serde2.typeinfo.DecimalTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.HiveDecimalUtils;
 import org.apache.hadoop.io.ArrayWritable;
@@ -55,11 +53,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.sql.Timestamp;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -100,10 +96,9 @@ public class HoodieRealtimeRecordReaderUtils {
     if (writable == null) {
       return "null";
     }
-    Random random = new Random(2);
     StringBuilder builder = new StringBuilder();
     Writable[] values = writable.get();
-    builder.append("\"values_" + random.nextDouble() + "_" + values.length + "\": {");
+    builder.append("\"values_" + Math.random() + "_" + values.length + "\": {");
     int i = 0;
     for (Writable w : values) {
       if (w instanceof ArrayWritable) {
@@ -180,9 +175,6 @@ public class HoodieRealtimeRecordReaderUtils {
         }
         return new IntWritable((Integer) value);
       case LONG:
-        if (schema.getLogicalType() != null && "timestamp-micros".equals(schema.getLogicalType().getName())) {
-          return new TimestampWritable(new Timestamp((Long) value));
-        }
         return new LongWritable((Long) value);
       case FLOAT:
         return new FloatWritable((Float) value);
@@ -197,14 +189,7 @@ public class HoodieRealtimeRecordReaderUtils {
         Writable[] recordValues = new Writable[schema.getFields().size()];
         int recordValueIndex = 0;
         for (Schema.Field field : schema.getFields()) {
-          // TODO Revisit Avro exception handling in future
-          Object fieldValue = null;
-          try {
-            fieldValue = record.get(field.name());
-          } catch (AvroRuntimeException e) {
-            LOG.debug("Field:" + field.name() + "not found in Schema:" + schema);
-          }
-          recordValues[recordValueIndex++] = avroToArrayWritable(fieldValue, field.schema());
+          recordValues[recordValueIndex++] = avroToArrayWritable(record.get(field.name()), field.schema());
         }
         return new ArrayWritable(Writable.class, recordValues);
       case ENUM:

@@ -21,7 +21,7 @@
     <parent>
         <artifactId>hudi</artifactId>
         <groupId>org.apache.hudi</groupId>
-        <version>0.13.0-SNAPSHOT</version>
+        <version>0.11.0.1-SNAPSHOT</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
     <modelVersion>4.0.0</modelVersion>
@@ -42,6 +42,12 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Logging -->
+        <dependency>
+            <groupId>log4j</groupId>
+            <artifactId>log4j</artifactId>
+        </dependency>
+
         <!-- Fasterxml -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -56,10 +62,16 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- Httpcomponents -->
+        <dependency>
+            <groupId>org.apache.httpcomponents</groupId>
+            <artifactId>fluent-hc</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>io.javalin</groupId>
             <artifactId>javalin</artifactId>
-            <version>${javalin.version}</version>
+            <version>2.8.0</version>
         </dependency>
 
         <dependency>
@@ -149,15 +161,18 @@
                     </filter>
                 </filters>
                 <artifactSet>
-                  <includes combine.children="append">
+                  <includes>
                       <!-- 
                          Include hudi-timeline-server with javalin dependencies. 
                          hadoop deps are to be provided at runtime. see run_server.sh 
                       -->
                       <include>org.apache.hudi:hudi-common</include>
                       <include>org.apache.hudi:hudi-timeline-service</include>
+                      <include>org.apache.httpcomponents:httpclient</include>
+                      <include>org.apache.httpcomponents:httpcore</include>
                       <include>org.mortbay.jetty:jetty</include>
                       <include>org.mortbay.jetty:jetty-util</include>
+                      <include>org.apache.httpcomponents:fluent-hc</include>
                       <include>io.javalin:javalin</include>
                       <include>org.jetbrains.kotlin:kotlin-stdlib-jdk8</include>
                       <include>org.jetbrains.kotlin:kotlin-stdlib</include>
@@ -180,6 +195,8 @@
                       <include>org.eclipse.jetty.websocket:websocket-servlet</include>
                       <include>com.beust:jcommander</include>
                       <include>org.rocksdb:rocksdbjni</include>
+                      <include>org.codehaus.jackson:jackson-core-asl</include>
+                      <include>org.codehaus.jackson:jackson-mapper-asl</include>
                       <include>com.fasterxml.jackson.core:jackson-annotations</include>
                       <include>com.fasterxml.jackson.core:jackson-core</include>
                       <include>com.fasterxml.jackson.core:jackson-databind</include>
@@ -189,19 +206,20 @@
                       <include>org.apache.hbase:hbase-hadoop2-compat</include>
                       <include>org.apache.hbase:hbase-metrics</include>
                       <include>org.apache.hbase:hbase-metrics-api</include>
-                      <include>org.apache.hbase:hbase-protocol</include>
                       <include>org.apache.hbase:hbase-protocol-shaded</include>
                       <include>org.apache.hbase:hbase-server</include>
                       <include>org.apache.hbase.thirdparty:hbase-shaded-miscellaneous</include>
                       <include>org.apache.hbase.thirdparty:hbase-shaded-netty</include>
                       <include>org.apache.hbase.thirdparty:hbase-shaded-protobuf</include>
                       <include>org.apache.htrace:htrace-core4</include>
+                      <include>com.esotericsoftware:kryo-shaded</include>
+                      <include>com.esotericsoftware:minlog</include>
                       <include>commons-io:commons-io</include>
                       <include>log4j:log4j</include>
-                      <include>org.openjdk.jol:jol-core</include>
+                      <include>org.objenesis:objenesis</include>
                   </includes>
                 </artifactSet>
-                <relocations combine.children="append">
+                <relocations>
                     <relocation>
                         <pattern>org.apache.commons.io.</pattern>
                         <shadedPattern>org.apache.hudi.org.apache.commons.io.</shadedPattern>
@@ -220,10 +238,6 @@
                     <relocation>
                         <pattern>org.apache.htrace.</pattern>
                         <shadedPattern>org.apache.hudi.org.apache.htrace.</shadedPattern>
-                    </relocation>
-                    <relocation>
-                        <pattern>org.openjdk.jol.</pattern>
-                        <shadedPattern>org.apache.hudi.org.openjdk.jol.</shadedPattern>
                     </relocation>
                     <!-- The classes below in org.apache.hadoop.metrics2 package come from
                 hbase-hadoop-compat and hbase-hadoop2-compat, which have to be shaded one by one,
@@ -319,7 +333,6 @@
     <properties>
         <checkstyle.skip>true</checkstyle.skip>
         <main.basedir>${project.parent.basedir}</main.basedir>
-        <skipTests>true</skipTests>
     </properties>
 
 

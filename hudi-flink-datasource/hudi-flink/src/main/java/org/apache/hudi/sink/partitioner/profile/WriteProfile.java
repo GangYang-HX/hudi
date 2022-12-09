@@ -256,13 +256,9 @@ public class WriteProfile {
       return;
     }
     this.metaClient.reloadActiveTimeline();
-    // release the old fs view and create a new one
-    SyncableFileSystemView oldFsView = this.fsView;
-    this.fsView = getFileSystemView();
-    oldFsView.close();
-
+    this.fsView.sync();
     recordProfile();
-    cleanMetadataCache(this.metaClient.getCommitsTimeline().filterCompletedInstants().getInstantsAsStream());
+    cleanMetadataCache(this.metaClient.getCommitsTimeline().filterCompletedInstants().getInstants());
     this.smallFilesMap.clear();
     this.reloadedCheckpointId = checkpointId;
   }

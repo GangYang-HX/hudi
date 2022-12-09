@@ -18,9 +18,8 @@
 
 package org.apache.hudi.keygen;
 
-import org.apache.hudi.common.model.HoodieKey;
-
 import org.apache.avro.generic.GenericRecord;
+import org.apache.hudi.common.model.HoodieKey;
 
 import java.io.Serializable;
 import java.util.List;

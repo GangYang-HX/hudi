@@ -18,12 +18,11 @@
 package org.apache.spark.sql.hudi
 
 import org.apache.hudi.DataSourceWriteOptions._
-import org.apache.hudi.HoodieSparkUtils.isSpark2
 import org.apache.hudi.config.HoodieWriteConfig
 import org.apache.hudi.keygen.SimpleKeyGenerator
 import org.apache.spark.sql.SaveMode
 
-class TestDeleteTable extends HoodieSparkSqlTestBase {
+class TestDeleteTable extends TestHoodieSqlBase {
 
   test("Test Delete Table") {
     withTempDir { tmp =>
@@ -94,20 +93,11 @@ class TestDeleteTable extends HoodieSparkSqlTestBase {
           """.stripMargin)
 
         // insert data to table
-        if (isSpark2) {
-          spark.sql(
-            s"""
-               |insert into $tableName
-               |values (1, 'a1', cast(10.0 as double), 1000), (2, 'a2', cast(20.0 as double), 1000), (3, 'a2', cast(30.0 as double), 1000)
-               |""".stripMargin)
-        } else {
-          spark.sql(
-            s"""
-               |insert into $tableName
-               |values (1, 'a1', 10.0, 1000), (2, 'a2', 20.0, 1000), (3, 'a2', 30.0, 1000)
-               |""".stripMargin)
-        }
-
+        spark.sql(
+          s"""
+             |insert into $tableName
+             |values (1, 'a1', 10.0, 1000), (2, 'a2', 20.0, 1000), (3, 'a2', 30.0, 1000)
+          """.stripMargin)
         checkAnswer(s"select id, name, price, ts from $tableName")(
           Seq(1, "a1", 10.0, 1000),
           Seq(2, "a2", 20.0, 1000),
@@ -142,20 +132,11 @@ class TestDeleteTable extends HoodieSparkSqlTestBase {
           """.stripMargin)
 
         // insert data to table
-        if (isSpark2) {
-          spark.sql(
-            s"""
-               |insert into $ptTableName
-               |values (1, 'a1', cast(10.0 as double), 1000, "2021"), (2, 'a2', cast(20.0 as double), 1000, "2021"), (3, 'a2', cast(30.0 as double), 1000, "2022")
-               |""".stripMargin)
-        } else {
-          spark.sql(
-            s"""
-               |insert into $ptTableName
-               |values (1, 'a1', 10.0, 1000, "2021"), (2, 'a2', 20.0, 1000, "2021"), (3, 'a2', 30.0, 1000, "2022")
-               |""".stripMargin)
-        }
-
+        spark.sql(
+          s"""
+             |insert into $ptTableName
+             |values (1, 'a1', 10.0, 1000, "2021"), (2, 'a2', 20.0, 1000, "2021"), (3, 'a2', 30.0, 1000, "2022")
+          """.stripMargin)
         checkAnswer(s"select id, name, price, ts, pt from $ptTableName")(
           Seq(1, "a1", 10.0, 1000, "2021"),
           Seq(2, "a2", 20.0, 1000, "2021"),

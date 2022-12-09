@@ -23,47 +23,70 @@ import org.apache.hudi.common.engine.EngineProperty;
 import org.apache.hudi.common.engine.TaskContextSupplier;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieTableType;
+import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.testutils.HoodieCommonTestHarness;
 import org.apache.hudi.common.testutils.HoodieTestUtils;
+import org.apache.hudi.common.testutils.minicluster.HdfsTestService;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.config.HoodieWriteConfig;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
+import org.apache.hadoop.hdfs.DistributedFileSystem;
+import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestInfo;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Supplier;
 
 /**
  * The test harness for resource initialization and cleanup.
  */
-public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarness {
+public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarness implements Serializable {
 
   private static final Logger LOG = LogManager.getLogger(HoodieJavaClientTestHarness.class);
 
-  protected Configuration hadoopConf;
-  protected HoodieJavaEngineContext context;
-  protected TestJavaTaskContextSupplier taskContextSupplier;
-  protected FileSystem fs;
-  protected ExecutorService executorService;
-  protected HoodieTableFileSystemView tableView;
-  protected HoodieJavaWriteClient writeClient;
+  private String testMethodName;
+  protected transient Configuration hadoopConf = null;
+  protected transient HoodieJavaEngineContext context = null;
+  protected transient TestJavaTaskContextSupplier taskContextSupplier = null;
+  protected transient FileSystem fs;
+  protected transient ExecutorService executorService;
+  protected transient HoodieTableFileSystemView tableView;
+  protected transient HoodieJavaWriteClient writeClient;
+
+  // dfs
+  protected String dfsBasePath;
+  protected transient HdfsTestService hdfsTestService;
+  protected transient MiniDFSCluster dfsCluster;
+  protected transient DistributedFileSystem dfs;
 
   @BeforeEach
-  protected void initResources() throws IOException {
-    basePath = tempDir.resolve("java_client_tests" + System.currentTimeMillis()).toUri().getPath();
+  public void setTestMethodName(TestInfo testInfo) {
+    if (testInfo.getTestMethod().isPresent()) {
+      testMethodName = testInfo.getTestMethod().get().getName();
+    } else {
+      testMethodName = "Unknown";
+    }
+  }
+
+  /**
+   * Initializes resource group for the subclasses of {@link HoodieJavaClientTestHarness}.
+   */
+  public void initResources() throws IOException {
+    initPath();
     hadoopConf = new Configuration();
     taskContextSupplier = new TestJavaTaskContextSupplier();
     context = new HoodieJavaEngineContext(hadoopConf, taskContextSupplier);
-    initFileSystem(basePath, hadoopConf);
     initTestDataGenerator();
+    initFileSystem();
     initMetaClient();
   }
 
@@ -97,29 +120,30 @@ public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarnes
     }
   }
 
-  @AfterEach
-  protected void cleanupResources() throws IOException {
+  /**
+   * Cleanups resource group for the subclasses of {@link HoodieJavaClientTestHarness}.
+   */
+  public void cleanupResources() throws IOException {
     cleanupClients();
     cleanupTestDataGenerator();
     cleanupFileSystem();
+    cleanupDFS();
     cleanupExecutorService();
+    System.gc();
   }
 
-  protected void initFileSystem(String basePath, Configuration hadoopConf) {
-    if (basePath == null) {
-      throw new IllegalStateException("The base path has not been initialized.");
-    }
-
-    fs = FSUtils.getFs(basePath, hadoopConf);
-    if (fs instanceof LocalFileSystem) {
-      LocalFileSystem lfs = (LocalFileSystem) fs;
-      // With LocalFileSystem, with checksum disabled, fs.open() returns an inputStream which is FSInputStream
-      // This causes ClassCastExceptions in LogRecordScanner (and potentially other places) calling fs.open
-      // So, for the tests, we enforce checksum verification to circumvent the problem
-      lfs.setVerifyChecksum(true);
-    }
+  /**
+   * Initializes a file system with the hadoop configuration of Spark context.
+   */
+  protected void initFileSystem() {
+    initFileSystemWithConfiguration(hadoopConf);
   }
 
+  /**
+   * Cleanups file system.
+   *
+   * @throws IOException
+   */
   protected void cleanupFileSystem() throws IOException {
     if (fs != null) {
       LOG.warn("Closing file-system instance used in previous test-run");
@@ -128,6 +152,12 @@ public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarnes
     }
   }
 
+  /**
+   * Initializes an instance of {@link HoodieTableMetaClient} with a special table type specified by
+   * {@code getTableType()}.
+   *
+   * @throws IOException
+   */
   protected void initMetaClient() throws IOException {
     initMetaClient(getTableType());
   }
@@ -140,6 +170,9 @@ public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarnes
     metaClient = HoodieTestUtils.init(hadoopConf, basePath, tableType);
   }
 
+  /**
+   * Cleanups hoodie clients.
+   */
   protected void cleanupClients() {
     if (metaClient != null) {
       metaClient = null;
@@ -154,6 +187,27 @@ public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarnes
     }
   }
 
+  /**
+   * Cleanups the distributed file system.
+   *
+   * @throws IOException
+   */
+  protected void cleanupDFS() throws IOException {
+    if (hdfsTestService != null) {
+      hdfsTestService.stop();
+      dfsCluster.shutdown();
+      hdfsTestService = null;
+      dfsCluster = null;
+      dfs = null;
+    }
+    // Need to closeAll to clear FileSystem.Cache, required because DFS and LocalFS used in the
+    // same JVM
+    FileSystem.closeAll();
+  }
+
+  /**
+   * Cleanups the executor service.
+   */
   protected void cleanupExecutorService() {
     if (this.executorService != null) {
       this.executorService.shutdownNow();
@@ -161,7 +215,22 @@ public abstract class HoodieJavaClientTestHarness extends HoodieCommonTestHarnes
     }
   }
 
-  protected HoodieJavaWriteClient getHoodieWriteClient(HoodieWriteConfig cfg) {
+  private void initFileSystemWithConfiguration(Configuration configuration) {
+    if (basePath == null) {
+      throw new IllegalStateException("The base path has not been initialized.");
+    }
+
+    fs = FSUtils.getFs(basePath, configuration);
+    if (fs instanceof LocalFileSystem) {
+      LocalFileSystem lfs = (LocalFileSystem) fs;
+      // With LocalFileSystem, with checksum disabled, fs.open() returns an inputStream which is FSInputStream
+      // This causes ClassCastExceptions in LogRecordScanner (and potentially other places) calling fs.open
+      // So, for the tests, we enforce checksum verification to circumvent the problem
+      lfs.setVerifyChecksum(true);
+    }
+  }
+
+  public HoodieJavaWriteClient getHoodieWriteClient(HoodieWriteConfig cfg) {
     if (null != writeClient) {
       writeClient.close();
       writeClient = null;

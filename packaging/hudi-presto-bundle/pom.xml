@@ -19,7 +19,7 @@
   <parent>
     <artifactId>hudi</artifactId>
     <groupId>org.apache.hudi</groupId>
-    <version>0.13.0-SNAPSHOT</version>
+    <version>0.11.0.1-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
   <modelVersion>4.0.0</modelVersion>
@@ -29,7 +29,6 @@
   <properties>
     <checkstyle.skip>true</checkstyle.skip>
     <main.basedir>${project.parent.basedir}</main.basedir>
-    <skipTests>true</skipTests>
   </properties>
 
   <build>
@@ -65,14 +64,16 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
               </transformers>
               <artifactSet>
-                <includes combine.children="append">
+                <includes>
                   <include>org.apache.hudi:hudi-common</include>
                   <include>org.apache.hudi:hudi-hadoop-mr</include>
 
                   <include>org.apache.parquet:parquet-avro</include>
                   <include>org.apache.avro:avro</include>
-                  <include>com.github.ben-manes.caffeine:caffeine</include>
                   <include>org.codehaus.jackson:*</include>
+                  <include>com.esotericsoftware:kryo-shaded</include>
+                  <include>org.objenesis:objenesis</include>
+                  <include>com.esotericsoftware:minlog</include>
                   <include>org.apache.commons:commons-lang3</include>
                   <include>org.apache.hbase:hbase-common</include>
                   <include>org.apache.hbase:hbase-client</include>
@@ -80,7 +81,6 @@
                   <include>org.apache.hbase:hbase-hadoop2-compat</include>
                   <include>org.apache.hbase:hbase-metrics</include>
                   <include>org.apache.hbase:hbase-metrics-api</include>
-                  <include>org.apache.hbase:hbase-protocol</include>
                   <include>org.apache.hbase:hbase-protocol-shaded</include>
                   <include>org.apache.hbase:hbase-server</include>
                   <include>org.apache.hbase.thirdparty:hbase-shaded-miscellaneous</include>
@@ -92,10 +92,9 @@
                   <include>commons-io:commons-io</include>
                   <include>commons-lang:commons-lang</include>
                   <include>com.google.protobuf:protobuf-java</include>
-                  <include>org.openjdk.jol:jol-core</include>
                 </includes>
               </artifactSet>
-              <relocations combine.children="append">
+              <relocations>
                 <relocation>
                   <pattern>org.apache.parquet.avro.</pattern>
                   <shadedPattern>org.apache.hudi.org.apache.parquet.avro.</shadedPattern>
@@ -124,6 +123,22 @@
                   <shadedPattern>org.apache.hudi.org.apache.htrace.</shadedPattern>
                 </relocation>
                 <relocation>
+                  <pattern>org.codehaus.jackson.</pattern>
+                  <shadedPattern>org.apache.hudi.org.codehaus.jackson.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.esotericsoftware.kryo.</pattern>
+                  <shadedPattern>org.apache.hudi.com.esotericsoftware.kryo.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>org.objenesis.</pattern>
+                  <shadedPattern>org.apache.hudi.org.objenesis.</shadedPattern>
+                </relocation>
+                <relocation>
+                  <pattern>com.esotericsoftware.minlog.</pattern>
+                  <shadedPattern>org.apache.hudi.com.esotericsoftware.minlog.</shadedPattern>
+                </relocation>
+                <relocation>
                   <pattern>com.yammer.metrics.</pattern>
                   <shadedPattern>org.apache.hudi.com.yammer.metrics.</shadedPattern>
                 </relocation>
@@ -146,10 +161,6 @@
                 <relocation>
                   <pattern>org.apache.parquet.avro.</pattern>
                   <shadedPattern>${presto.bundle.bootstrap.shade.prefix}org.apache.parquet.avro.</shadedPattern>
-                </relocation>
-                <relocation>
-                  <pattern>org.openjdk.jol.</pattern>
-                  <shadedPattern>org.apache.hudi.org.openjdk.jol.</shadedPattern>
                 </relocation>
                 <!-- The classes below in org.apache.hadoop.metrics2 package come from
                 hbase-hadoop-compat and hbase-hadoop2-compat, which have to be shaded one by one,
@@ -230,6 +241,7 @@
                     <exclude>META-INF/*.RSA</exclude>
                     <exclude>META-INF/services/javax.*</exclude>
                     <exclude>**/*.proto</exclude>
+                    <exclude>com/esotericsoftware/reflectasm/**</exclude>
                     <exclude>hbase-webapps/**</exclude>
                     <exclude>stringBehavior.avsc</exclude>
                   </excludes>
@@ -301,7 +313,7 @@
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
-      <version>${proto.version}</version>
+      <version>2.5.0</version>
       <scope>${presto.bundle.bootstrap.scope}</scope>
     </dependency>
 

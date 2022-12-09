@@ -36,7 +36,6 @@ import org.apache.hudi.common.model.HoodieLogFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
-import org.apache.hudi.common.table.timeline.TimelineUtils;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.exception.HoodieException;
@@ -92,7 +91,7 @@ public class HoodieMergeOnReadTableInputFormat extends HoodieCopyOnWriteTableInp
     Stream<HoodieLogFile> logFiles = fileSlice.getLogFiles();
 
     Option<HoodieInstant> latestCompletedInstantOpt = fileIndex.getLatestCompletedInstant();
-    String tableBasePath = fileIndex.getBasePath().toString();
+    String tableBasePath = fileIndex.getBasePath();
 
     // Check if we're reading a MOR table
     if (baseFileOpt.isPresent()) {
@@ -101,18 +100,6 @@ public class HoodieMergeOnReadTableInputFormat extends HoodieCopyOnWriteTableInp
       return createRealtimeFileStatusUnchecked(latestLogFileOpt.get(), logFiles, tableBasePath, latestCompletedInstantOpt, virtualKeyInfoOpt);
     } else {
       throw new IllegalStateException("Invalid state: either base-file or log-file has to be present");
-    }
-  }
-
-  @Override
-  protected boolean checkIfValidFileSlice(FileSlice fileSlice) {
-    Option<HoodieBaseFile> baseFileOpt = fileSlice.getBaseFile();
-    Option<HoodieLogFile> latestLogFileOpt = fileSlice.getLatestLogFile();
-
-    if (baseFileOpt.isPresent() || latestLogFileOpt.isPresent()) {
-      return true;
-    } else {
-      throw new IllegalStateException("Invalid state: either base-file or log-file has to be present for " + fileSlice.getFileId());
     }
   }
 
@@ -148,7 +135,7 @@ public class HoodieMergeOnReadTableInputFormat extends HoodieCopyOnWriteTableInp
       return result;
     }
     HoodieTimeline commitsTimelineToReturn = HoodieInputFormatUtils.getHoodieTimelineForIncrementalQuery(jobContext, incrementalTableName, timeline.get());
-    Option<List<HoodieInstant>> commitsToCheck = Option.of(commitsTimelineToReturn.getInstants());
+    Option<List<HoodieInstant>> commitsToCheck = Option.of(commitsTimelineToReturn.getInstants().collect(Collectors.toList()));
     if (!commitsToCheck.isPresent()) {
       return result;
     }
@@ -157,7 +144,7 @@ public class HoodieMergeOnReadTableInputFormat extends HoodieCopyOnWriteTableInp
     List<HoodieCommitMetadata> metadataList = commitsToCheck
         .get().stream().map(instant -> {
           try {
-            return TimelineUtils.getCommitMetadata(instant, commitsTimelineToReturn);
+            return HoodieInputFormatUtils.getCommitMetadata(instant, commitsTimelineToReturn);
           } catch (IOException e) {
             throw new HoodieException(String.format("cannot get metadata for instant: %s", instant));
           }

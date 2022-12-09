@@ -19,12 +19,11 @@
 package org.apache.hudi.streamer;
 
 import org.apache.hudi.client.utils.OperationConverter;
-import org.apache.hudi.common.model.HoodieCleaningPolicy;
 import org.apache.hudi.common.model.OverwriteWithLatestAvroPayload;
 import org.apache.hudi.common.model.WriteOperationType;
 import org.apache.hudi.common.util.StringUtils;
 import org.apache.hudi.configuration.FlinkOptions;
-import org.apache.hudi.hive.MultiPartKeysValueExtractor;
+import org.apache.hudi.hive.SlashEncodedDayPartitionValueExtractor;
 import org.apache.hudi.keygen.constant.KeyGeneratorType;
 import org.apache.hudi.util.FlinkStateBackendConverter;
 import org.apache.hudi.util.StreamerUtil;
@@ -39,7 +38,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.hudi.common.util.PartitionPathEncodeUtils.DEFAULT_PARTITION_PATH;
 import static org.apache.hudi.configuration.FlinkOptions.PARTITION_FORMAT_DAY;
 
 /**
@@ -59,7 +57,7 @@ public class FlinkStreamerConfig extends Configuration {
   public String flinkCheckPointPath;
 
   @Parameter(names = {"--flink-state-backend-type"}, description = "Flink state backend type, support only hashmap and rocksdb by now,"
-      + " default hashmap.", converter = FlinkStateBackendConverter.class)
+          + " default hashmap.", converter = FlinkStateBackendConverter.class)
   public StateBackend stateBackend = new HashMapStateBackend();
 
   @Parameter(names = {"--instant-retry-times"}, description = "Times to retry when latest instant has not completed.")
@@ -179,7 +177,7 @@ public class FlinkStreamerConfig extends Configuration {
 
   @Parameter(names = {"--partition-default-name"},
       description = "The default partition name in case the dynamic partition column value is null/empty string")
-  public String partitionDefaultName = DEFAULT_PARTITION_PATH;
+  public String partitionDefaultName = "default";
 
   @Parameter(names = {"--index-bootstrap-enabled"},
       description = "Whether to bootstrap the index state from existing hoodie table, default false")
@@ -202,10 +200,14 @@ public class FlinkStreamerConfig extends Configuration {
   @Parameter(names = {"--source-avro-schema"}, description = "Source avro schema string, the parsed schema is used for deserialization")
   public String sourceAvroSchema = "";
 
-  @Parameter(names = {"--utc-timezone"}, description = "Use UTC timezone or local timezone to the conversion between epoch"
+  @Parameter(names = {"--read-utc-timezone"}, description = "Use UTC timezone or local timezone to the conversion between epoch"
       + " time and LocalDateTime. Hive 0.x/1.x/2.x use local timezone. But Hive 3.x"
       + " use UTC timezone, by default true")
-  public Boolean utcTimezone = true;
+  public Boolean readUtcTimezone = true;
+
+  @Parameter(names = {"--write-utc-timezone"}, description = "Use UTC timezone or local timezone to the conversion between epoch"
+      + " time and LocalDateTime.")
+  public Boolean writeUtcTimezone = true;
 
   @Parameter(names = {"--write-partition-url-encode"}, description = "Whether to encode the partition path url, default false")
   public Boolean writePartitionUrlEncode = false;
@@ -236,6 +238,9 @@ public class FlinkStreamerConfig extends Configuration {
   @Parameter(names = {"--compaction-async-enabled"}, description = "Async Compaction, enabled by default for MOR")
   public Boolean compactionAsyncEnabled = true;
 
+  @Parameter(names = {"--compaction-operation-async-enabled"}, description = "Async Compaction Operation, enabled by default for MOR")
+  public Boolean compactionOperationAsyncEnabled = true;
+
   @Parameter(names = {"--compaction-tasks"}, description = "Parallelism of tasks that do actual compaction, default is 10")
   public Integer compactionTasks = 10;
 
@@ -262,25 +267,10 @@ public class FlinkStreamerConfig extends Configuration {
   @Parameter(names = {"--clean-async-enabled"}, description = "Whether to cleanup the old commits immediately on new commits, enabled by default")
   public Boolean cleanAsyncEnabled = true;
 
-  @Parameter(names = {"--clean-policy"},
-      description = "Clean policy to manage the Hudi table. Available option: KEEP_LATEST_COMMITS, KEEP_LATEST_FILE_VERSIONS, KEEP_LATEST_BY_HOURS."
-          + "Default is KEEP_LATEST_COMMITS.")
-  public String cleanPolicy = HoodieCleaningPolicy.KEEP_LATEST_COMMITS.name();
-
   @Parameter(names = {"--clean-retain-commits"},
       description = "Number of commits to retain. So data will be retained for num_of_commits * time_between_commits (scheduled).\n"
           + "This also directly translates into how much you can incrementally pull on this table, default 10")
   public Integer cleanRetainCommits = 10;
-
-  @Parameter(names = {"--clean-retain-hours"},
-      description = "Number of hours for which commits need to be retained. This config provides a more flexible option as"
-          + "compared to number of commits retained for cleaning service. Setting this property ensures all the files, but the latest in a file group,"
-          + " corresponding to commits with commit times older than the configured number of hours to be retained are cleaned. default 24")
-  public Integer cleanRetainHours = 24;
-
-  @Parameter(names = {"--clean-retain-file-versions"},
-      description = "Number of file versions to retain. Each file group will be retained for this number of version. default 5")
-  public Integer cleanRetainFileVersions = 5;
 
   @Parameter(names = {"--archive-max-commits"},
       description = "Max number of commits to keep before archiving older commits into a sequential log, default 30")
@@ -321,8 +311,8 @@ public class FlinkStreamerConfig extends Configuration {
   public String hiveSyncPartitionFields = "";
 
   @Parameter(names = {"--hive-sync-partition-extractor-class"}, description = "Tool to extract the partition value from HDFS path, "
-      + "default 'MultiPartKeysValueExtractor'")
-  public String hiveSyncPartitionExtractorClass = MultiPartKeysValueExtractor.class.getCanonicalName();
+      + "default 'SlashEncodedDayPartitionValueExtractor'")
+  public String hiveSyncPartitionExtractorClass = SlashEncodedDayPartitionValueExtractor.class.getCanonicalName();
 
   @Parameter(names = {"--hive-sync-assume-date-partitioning"}, description = "Assume partitioning is yyyy/mm/dd, default false")
   public Boolean hiveSyncAssumeDatePartition = false;
@@ -393,7 +383,8 @@ public class FlinkStreamerConfig extends Configuration {
       conf.setString(FlinkOptions.SOURCE_AVRO_SCHEMA_PATH, config.sourceAvroSchemaPath);
     }
     conf.setString(FlinkOptions.SOURCE_AVRO_SCHEMA, config.sourceAvroSchema);
-    conf.setBoolean(FlinkOptions.UTC_TIMEZONE, config.utcTimezone);
+    conf.setBoolean(FlinkOptions.READ_UTC_TIMEZONE, config.readUtcTimezone);
+    conf.setBoolean(FlinkOptions.WRITE_UTC_TIMEZONE, config.writeUtcTimezone);
     conf.setBoolean(FlinkOptions.URL_ENCODE_PARTITIONING, config.writePartitionUrlEncode);
     conf.setBoolean(FlinkOptions.HIVE_STYLE_PARTITIONING, config.hiveStylePartitioning);
     conf.setDouble(FlinkOptions.WRITE_TASK_MAX_SIZE, config.writeTaskMaxSize);
@@ -402,6 +393,7 @@ public class FlinkStreamerConfig extends Configuration {
     conf.setLong(FlinkOptions.WRITE_LOG_MAX_SIZE, config.writeLogMaxSize);
     conf.setInteger(FlinkOptions.WRITE_MERGE_MAX_MEMORY, config.writeMergeMaxMemory);
     conf.setBoolean(FlinkOptions.COMPACTION_ASYNC_ENABLED, config.compactionAsyncEnabled);
+    conf.setBoolean(FlinkOptions.COMPACTION_OPERATION_ASYNC_ENABLED, config.compactionOperationAsyncEnabled);
     conf.setInteger(FlinkOptions.COMPACTION_TASKS, config.compactionTasks);
     conf.setString(FlinkOptions.COMPACTION_TRIGGER_STRATEGY, config.compactionTriggerStrategy);
     conf.setInteger(FlinkOptions.COMPACTION_DELTA_COMMITS, config.compactionDeltaCommits);
@@ -409,10 +401,7 @@ public class FlinkStreamerConfig extends Configuration {
     conf.setInteger(FlinkOptions.COMPACTION_MAX_MEMORY, config.compactionMaxMemory);
     conf.setLong(FlinkOptions.COMPACTION_TARGET_IO, config.compactionTargetIo);
     conf.setBoolean(FlinkOptions.CLEAN_ASYNC_ENABLED, config.cleanAsyncEnabled);
-    conf.setString(FlinkOptions.CLEAN_POLICY, config.cleanPolicy);
     conf.setInteger(FlinkOptions.CLEAN_RETAIN_COMMITS, config.cleanRetainCommits);
-    conf.setInteger(FlinkOptions.CLEAN_RETAIN_HOURS, config.cleanRetainHours);
-    conf.setInteger(FlinkOptions.CLEAN_RETAIN_FILE_VERSIONS, config.cleanRetainFileVersions);
     conf.setInteger(FlinkOptions.ARCHIVE_MAX_COMMITS, config.archiveMaxCommits);
     conf.setInteger(FlinkOptions.ARCHIVE_MIN_COMMITS, config.archiveMinCommits);
     conf.setBoolean(FlinkOptions.HIVE_SYNC_ENABLED, config.hiveSyncEnabled);

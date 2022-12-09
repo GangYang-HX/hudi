@@ -18,19 +18,17 @@
 
 package org.apache.hudi.cli.utils;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.logging.Logger;
 
 /**
  * This class is responsible to read a Process output.
  */
 public class InputStreamConsumer extends Thread {
 
-  private static final Logger LOG = LogManager.getLogger(InputStreamConsumer.class);
+  private static final Logger LOG = Logger.getLogger(InputStreamConsumer.class.getName());
   private InputStream is;
 
   public InputStreamConsumer(InputStream is) {
@@ -44,7 +42,7 @@ public class InputStreamConsumer extends Thread {
       BufferedReader br = new BufferedReader(isr);
       br.lines().forEach(LOG::info);
     } catch (Exception e) {
-      LOG.fatal(e.toString());
+      LOG.severe(e.toString());
       e.printStackTrace();
     }
   }

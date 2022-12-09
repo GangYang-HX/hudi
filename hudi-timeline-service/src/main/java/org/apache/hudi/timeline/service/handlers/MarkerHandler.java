@@ -27,14 +27,14 @@ import org.apache.hudi.timeline.service.handlers.marker.MarkerCreationDispatchin
 import org.apache.hudi.timeline.service.handlers.marker.MarkerCreationFuture;
 import org.apache.hudi.timeline.service.handlers.marker.MarkerDirState;
 
-import io.javalin.http.Context;
+import io.javalin.Context;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -74,8 +74,7 @@ public class MarkerHandler extends Handler {
   // Parallelism for reading and deleting marker files
   private final int parallelism;
   // Marker directory states, {markerDirPath -> MarkerDirState instance}
-  // Use ConcurrentHashMap to ensure thread safety in dispatchingExecutorService
-  private final Map<String, MarkerDirState> markerDirStateMap = new ConcurrentHashMap<>();
+  private final Map<String, MarkerDirState> markerDirStateMap = new HashMap<>();
   // A thread to dispatch marker creation requests to batch processing threads
   private final MarkerCreationDispatchingRunnable markerCreationDispatchingRunnable;
   private final Object firstCreationRequestSeenLock = new Object();

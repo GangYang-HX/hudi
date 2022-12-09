@@ -19,7 +19,6 @@
 package org.apache.hudi.common.model.debezium;
 
 import org.apache.hudi.common.util.Option;
-import org.apache.hudi.exception.HoodieDebeziumAvroPayloadException;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
@@ -59,20 +58,18 @@ public class PostgresDebeziumAvroPayload extends AbstractDebeziumAvroPayload {
     super(record);
   }
 
-  private Option<Long> extractLSN(IndexedRecord record) {
-    Object value = ((GenericRecord) record).get(DebeziumConstants.FLATTENED_LSN_COL_NAME);
-    return Option.ofNullable(value != null ? (Long) value : null);
+  private Long extractLSN(IndexedRecord record) {
+    GenericRecord genericRecord = (GenericRecord) record;
+    return (Long) genericRecord.get(DebeziumConstants.FLATTENED_LSN_COL_NAME);
   }
 
   @Override
   protected boolean shouldPickCurrentRecord(IndexedRecord currentRecord, IndexedRecord insertRecord, Schema schema) throws IOException {
-    Long insertSourceLSN = extractLSN(insertRecord)
-        .orElseThrow(() ->
-            new HoodieDebeziumAvroPayloadException(String.format("%s cannot be null in insert record: %s",
-                DebeziumConstants.FLATTENED_LSN_COL_NAME, insertRecord)));
-    Option<Long> currentSourceLSNOpt = extractLSN(currentRecord);
+    Long currentSourceLSN = extractLSN(currentRecord);
+    Long insertSourceLSN = extractLSN(insertRecord);
+
     // Pick the current value in storage only if its LSN is latest compared to the LSN of the insert value
-    return currentSourceLSNOpt.isPresent() && insertSourceLSN < currentSourceLSNOpt.get();
+    return insertSourceLSN < currentSourceLSN;
   }
 
   @Override

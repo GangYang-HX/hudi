@@ -26,9 +26,11 @@ import org.apache.log4j.LogManager;
 
 import javax.management.MBeanServer;
 
+import java.io.Closeable;
 import java.lang.management.ManagementFactory;
 import java.util.Objects;
 import java.util.stream.IntStream;
+
 
 /**
  * Implementation of Jmx reporter, which used to report jmx metric.
@@ -82,6 +84,11 @@ public class JmxMetricsReporter extends MetricsReporter {
 
   @Override
   public void report() {
+  }
+
+  @Override
+  public Closeable getReporter() {
+    return jmxReporterServer.getReporter();
   }
 
   @Override

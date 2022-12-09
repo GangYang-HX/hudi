@@ -19,7 +19,7 @@ package org.apache.hudi.callback.util;
 
 import org.apache.hudi.exception.HoodieCommitCallbackException;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.IOException;
 

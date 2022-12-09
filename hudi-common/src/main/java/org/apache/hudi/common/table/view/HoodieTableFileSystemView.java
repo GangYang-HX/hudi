@@ -63,11 +63,6 @@ public class HoodieTableFileSystemView extends IncrementalTimelineSyncFileSystem
   protected Map<HoodieFileGroupId, Pair<String, CompactionOperation>> fgIdToPendingCompaction;
 
   /**
-   * PartitionPath + File-Id to pending compaction instant time.
-   */
-  protected Map<HoodieFileGroupId, Pair<String, CompactionOperation>> fgIdToPendingLogCompaction;
-
-  /**
    * PartitionPath + File-Id to bootstrap base File (Index Only bootstrapped).
    */
   protected Map<HoodieFileGroupId, BootstrapBaseFileMapping> fgIdToBootstrapBaseFile;
@@ -148,11 +143,6 @@ public class HoodieTableFileSystemView extends IncrementalTimelineSyncFileSystem
     return fileIdToPendingCompaction;
   }
 
-  protected Map<HoodieFileGroupId, Pair<String, CompactionOperation>> createFileIdToPendingLogCompactionMap(
-      Map<HoodieFileGroupId, Pair<String, CompactionOperation>> fileIdToPendingLogCompaction) {
-    return fileIdToPendingLogCompaction;
-  }
-
   protected Map<HoodieFileGroupId, BootstrapBaseFileMapping> createFileIdToBootstrapBaseFileMap(
       Map<HoodieFileGroupId, BootstrapBaseFileMapping> fileGroupIdBootstrapBaseFileMap) {
     return fileGroupIdBootstrapBaseFileMap;
@@ -224,39 +214,6 @@ public class HoodieTableFileSystemView extends IncrementalTimelineSyncFileSystem
   }
 
   @Override
-  protected boolean isPendingLogCompactionScheduledForFileId(HoodieFileGroupId fgId) {
-    return fgIdToPendingLogCompaction.containsKey(fgId);
-  }
-
-  @Override
-  protected void resetPendingLogCompactionOperations(Stream<Pair<String, CompactionOperation>> operations) {
-    // Build fileId to Pending Log Compaction Instants
-    this.fgIdToPendingLogCompaction = createFileIdToPendingLogCompactionMap(operations.map(entry ->
-        Pair.of(entry.getValue().getFileGroupId(), Pair.of(entry.getKey(), entry.getValue()))).collect(Collectors.toMap(Pair::getKey, Pair::getValue)));
-  }
-
-  @Override
-  protected void addPendingLogCompactionOperations(Stream<Pair<String, CompactionOperation>> operations) {
-    operations.forEach(opInstantPair -> {
-      ValidationUtils.checkArgument(!fgIdToPendingLogCompaction.containsKey(opInstantPair.getValue().getFileGroupId()),
-          "Duplicate FileGroupId found in pending log compaction operations. FgId :"
-              + opInstantPair.getValue().getFileGroupId());
-      fgIdToPendingLogCompaction.put(opInstantPair.getValue().getFileGroupId(),
-          Pair.of(opInstantPair.getKey(), opInstantPair.getValue()));
-    });
-  }
-
-  @Override
-  protected void removePendingLogCompactionOperations(Stream<Pair<String, CompactionOperation>> operations) {
-    operations.forEach(opInstantPair -> {
-      ValidationUtils.checkArgument(fgIdToPendingLogCompaction.containsKey(opInstantPair.getValue().getFileGroupId()),
-          "Trying to remove a FileGroupId which is not found in pending log compaction operations. FgId :"
-              + opInstantPair.getValue().getFileGroupId());
-      fgIdToPendingLogCompaction.remove(opInstantPair.getValue().getFileGroupId());
-    });
-  }
-
-  @Override
   protected boolean isPendingClusteringScheduledForFileId(HoodieFileGroupId fgId) {
     return fgIdToPendingClustering.containsKey(fgId);
   }
@@ -316,11 +273,6 @@ public class HoodieTableFileSystemView extends IncrementalTimelineSyncFileSystem
   @Override
   Stream<Pair<String, CompactionOperation>> fetchPendingCompactionOperations() {
     return fgIdToPendingCompaction.values().stream();
-  }
-
-  @Override
-  Stream<Pair<String, CompactionOperation>> fetchPendingLogCompactionOperations() {
-    return fgIdToPendingLogCompaction.values().stream();
 
   }
 
@@ -369,11 +321,6 @@ public class HoodieTableFileSystemView extends IncrementalTimelineSyncFileSystem
   @Override
   protected Option<Pair<String, CompactionOperation>> getPendingCompactionOperationWithInstant(HoodieFileGroupId fgId) {
     return Option.ofNullable(fgIdToPendingCompaction.get(fgId));
-  }
-
-  @Override
-  protected Option<Pair<String, CompactionOperation>> getPendingLogCompactionOperationWithInstant(HoodieFileGroupId fgId) {
-    return Option.ofNullable(fgIdToPendingLogCompaction.get(fgId));
   }
 
   @Override

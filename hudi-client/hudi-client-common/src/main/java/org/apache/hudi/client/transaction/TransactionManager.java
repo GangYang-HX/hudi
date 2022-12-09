@@ -85,10 +85,6 @@ public class TransactionManager implements Serializable {
     }
   }
 
-  public LockManager getLockManager() {
-    return lockManager;
-  }
-
   public Option<HoodieInstant> getLastCompletedTransactionOwner() {
     return lastCompletedTxnOwnerInstant;
   }
@@ -97,7 +93,4 @@ public class TransactionManager implements Serializable {
     return currentTxnOwnerInstant;
   }
 
-  public boolean isOptimisticConcurrencyControlEnabled() {
-    return isOptimisticConcurrencyControlEnabled;
-  }
 }

@@ -43,7 +43,7 @@ import org.apache.hudi.io.HoodieCreateHandle;
 import org.apache.hudi.table.HoodieJavaCopyOnWriteTable;
 import org.apache.hudi.table.HoodieJavaTable;
 import org.apache.hudi.table.HoodieTable;
-import org.apache.hudi.testutils.HoodieJavaClientTestHarness;
+import org.apache.hudi.testutils.HoodieJavaClientTestBase;
 import org.apache.hudi.testutils.MetadataMergeWriteStatus;
 
 import org.apache.avro.Schema;
@@ -76,7 +76,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class TestJavaCopyOnWriteActionExecutor extends HoodieJavaClientTestHarness {
+public class TestJavaCopyOnWriteActionExecutor extends HoodieJavaClientTestBase {
 
   private static final Logger LOG = LogManager.getLogger(TestJavaCopyOnWriteActionExecutor.class);
   private static final Schema SCHEMA = getSchemaFromResource(TestJavaCopyOnWriteActionExecutor.class, "/exampleSchema.avsc");
@@ -103,7 +103,7 @@ public class TestJavaCopyOnWriteActionExecutor extends HoodieJavaClientTestHarne
     }).collect(Collectors.toList()).get(0);
 
     assertEquals(newPathWithWriteToken.getKey().toString(), Paths.get(this.basePath, partitionPath,
-        FSUtils.makeBaseFileName(instantTime, newPathWithWriteToken.getRight(), fileName)).toString());
+        FSUtils.makeDataFileName(instantTime, newPathWithWriteToken.getRight(), fileName)).toString());
   }
 
   private HoodieWriteConfig makeHoodieClientConfig() {
@@ -379,7 +379,7 @@ public class TestJavaCopyOnWriteActionExecutor extends HoodieJavaClientTestHarne
 
     List<HoodieRecord> records = new ArrayList<>();
     // Approx 1150 records are written for block size of 64KB
-    for (int i = 0; i < 2050; i++) {
+    for (int i = 0; i < 2000; i++) {
       String recordStr = "{\"_row_key\":\"" + UUID.randomUUID().toString()
           + "\",\"time\":\"2016-01-31T03:16:41.415Z\",\"number\":" + i + "}";
       RawTripTestPayload rowChange = new RawTripTestPayload(recordStr);
@@ -402,8 +402,7 @@ public class TestJavaCopyOnWriteActionExecutor extends HoodieJavaClientTestHarne
         counts++;
       }
     }
-    // we check canWrite only once every 1000 records. and so 2 files with 1000 records and 3rd file with 50 records.
-    assertEquals(3, counts, "If the number of records are more than 1150, then there should be a new file");
+    assertEquals(5, counts, "If the number of records are more than 1150, then there should be a new file");
   }
 
   @Test

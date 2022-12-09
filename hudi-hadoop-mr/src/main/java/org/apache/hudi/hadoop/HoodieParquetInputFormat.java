@@ -76,9 +76,6 @@ public class HoodieParquetInputFormat extends HoodieParquetInputFormatBase {
       return createBootstrappingRecordReader(split, job, reporter);
     }
 
-    // adapt schema evolution
-    new SchemaEvolutionContext(split, job).doEvolutionForParquetFormat();
-
     if (LOG.isDebugEnabled()) {
       LOG.debug("EMPLOYING DEFAULT RECORD READER - " + split);
     }

@@ -36,7 +36,6 @@ import org.apache.hudi.common.table.timeline.TimelineMetadataUtils;
 import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
-
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -66,7 +65,7 @@ public class ClusteringUtils {
   public static Stream<Pair<HoodieInstant, HoodieClusteringPlan>> getAllPendingClusteringPlans(
       HoodieTableMetaClient metaClient) {
     List<HoodieInstant> pendingReplaceInstants =
-        metaClient.getActiveTimeline().filterPendingReplaceTimeline().getInstants();
+        metaClient.getActiveTimeline().filterPendingReplaceTimeline().getInstants().collect(Collectors.toList());
     return pendingReplaceInstants.stream().map(instant -> getClusteringPlan(metaClient, instant))
         .filter(Option::isPresent).map(Option::get);
   }
@@ -216,7 +215,7 @@ public class ClusteringUtils {
   }
 
   public static List<HoodieInstant> getPendingClusteringInstantTimes(HoodieTableMetaClient metaClient) {
-    return metaClient.getActiveTimeline().filterPendingReplaceTimeline().getInstantsAsStream()
+    return metaClient.getActiveTimeline().filterPendingReplaceTimeline().getInstants()
             .filter(instant -> isPendingClusteringInstant(metaClient, instant))
             .collect(Collectors.toList());
   }

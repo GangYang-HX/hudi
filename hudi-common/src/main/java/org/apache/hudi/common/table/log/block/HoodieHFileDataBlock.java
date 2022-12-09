@@ -18,7 +18,9 @@
 
 package org.apache.hudi.common.table.log.block;
 
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hudi.avro.HoodieAvroUtils;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.fs.inline.InLineFSUtils;
 import org.apache.hudi.common.fs.inline.InLineFileSystem;
 import org.apache.hudi.common.util.ClosableIterator;
@@ -41,6 +43,8 @@ import org.apache.hadoop.hbase.io.hfile.CacheConfig;
 import org.apache.hadoop.hbase.io.hfile.HFile;
 import org.apache.hadoop.hbase.io.hfile.HFileContext;
 import org.apache.hadoop.hbase.io.hfile.HFileContextBuilder;
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -59,6 +63,7 @@ import static org.apache.hudi.common.util.ValidationUtils.checkState;
  * base file format.
  */
 public class HoodieHFileDataBlock extends HoodieDataBlock {
+  private static final Logger LOG = LogManager.getLogger(HoodieHFileDataBlock.class);
 
   private static final int DEFAULT_BLOCK_SIZE = 1024 * 1024;
 
@@ -162,8 +167,9 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
     // Get schema from the header
     Schema writerSchema = new Schema.Parser().parse(super.getLogBlockHeader().get(HeaderMetadataType.SCHEMA));
 
+    FileSystem fs = FSUtils.getFs(pathForReader.toString(), new Configuration());
     // Read the content
-    HoodieHFileReader<IndexedRecord> reader = new HoodieHFileReader<>(null, pathForReader, content, Option.of(writerSchema));
+    HoodieHFileReader<IndexedRecord> reader = new HoodieHFileReader<>(fs, pathForReader, content, Option.of(writerSchema));
     Iterator<IndexedRecord> recordIterator = reader.getRecordIterator(readerSchema);
     return new ClosableIterator<IndexedRecord>() {
       @Override
@@ -192,7 +198,7 @@ public class HoodieHFileDataBlock extends HoodieDataBlock {
     //       is appropriately carried over
     Configuration inlineConf = new Configuration(blockContentLoc.getHadoopConf());
     inlineConf.set("fs." + InLineFileSystem.SCHEME + ".impl", InLineFileSystem.class.getName());
-    inlineConf.setClassLoader(InLineFileSystem.class.getClassLoader());
+    inlineConf.setClassLoader(Thread.currentThread().getContextClassLoader());
 
     Path inlinePath = InLineFSUtils.getInlineFilePath(
         blockContentLoc.getLogFile().getPath(),

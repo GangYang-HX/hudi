@@ -74,7 +74,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.File;
-import java.io.Serializable;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -96,7 +95,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implements Serializable {
+public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase {
 
   private static final Logger LOG = LogManager.getLogger(TestCopyOnWriteActionExecutor.class);
   private static final Schema SCHEMA = getSchemaFromResource(TestCopyOnWriteActionExecutor.class, "/exampleSchema.avsc");
@@ -128,7 +127,7 @@ public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implemen
     }).collect().get(0);
 
     assertEquals(newPathWithWriteToken.getKey().toString(), Paths.get(this.basePath, partitionPath,
-        FSUtils.makeBaseFileName(instantTime, newPathWithWriteToken.getRight(), fileName)).toString());
+        FSUtils.makeDataFileName(instantTime, newPathWithWriteToken.getRight(), fileName)).toString());
   }
 
   private HoodieWriteConfig makeHoodieClientConfig() {
@@ -146,17 +145,15 @@ public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implemen
     Properties props = new Properties();
     HoodieIndexConfig.Builder indexConfig = HoodieIndexConfig.newBuilder()
         .withIndexType(indexType);
+    props.putAll(indexConfig.build().getProps());
     if (indexType.equals(HoodieIndex.IndexType.BUCKET)) {
       props.setProperty(KeyGeneratorOptions.RECORDKEY_FIELD_NAME.key(), "_row_key");
-      indexConfig.fromProperties(props)
-          .withIndexKeyField("_row_key")
-          .withBucketNum("1")
-          .withBucketIndexEngineType(HoodieIndex.BucketIndexEngineType.SIMPLE);
+      indexConfig.fromProperties(props).withIndexKeyField("_row_key").withBucketNum("1");
+      props.putAll(indexConfig.build().getProps());
       props.putAll(HoodieLayoutConfig.newBuilder().fromProperties(props)
           .withLayoutType(HoodieStorageLayout.LayoutType.BUCKET.name())
           .withLayoutPartitioner(SparkBucketIndexPartitioner.class.getName()).build().getProps());
     }
-    props.putAll(indexConfig.build().getProps());
     return props;
   }
 
@@ -422,7 +419,7 @@ public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implemen
 
     List<HoodieRecord> records = new ArrayList<>();
     // Approx 1150 records are written for block size of 64KB
-    for (int i = 0; i < 2050; i++) {
+    for (int i = 0; i < 2000; i++) {
       String recordStr = "{\"_row_key\":\"" + UUID.randomUUID().toString()
           + "\",\"time\":\"2016-01-31T03:16:41.415Z\",\"number\":" + i + "}";
       RawTripTestPayload rowChange = new RawTripTestPayload(recordStr);
@@ -444,8 +441,7 @@ public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implemen
         counts++;
       }
     }
-    // we check canWrite only once every 1000 records. and so 2 files with 1000 records and 3rd file with 50 records.
-    assertEquals(3, counts, "If the number of records are more than 1150, then there should be a new file");
+    assertEquals(5, counts, "If the number of records are more than 1150, then there should be a new file");
   }
 
   @Test
@@ -483,7 +479,7 @@ public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implemen
     assertEquals(updates.size() - numRecordsInPartition, updateStatus.get(0).get(0).getTotalErrorRecords());
   }
 
-  private void testBulkInsertRecords(String bulkInsertMode) {
+  public void testBulkInsertRecords(String bulkInsertMode) throws Exception {
     HoodieWriteConfig config = HoodieWriteConfig.newBuilder()
         .withPath(basePath).withSchema(TRIP_EXAMPLE_SCHEMA)
         .withBulkInsertParallelism(2).withBulkInsertSortMode(bulkInsertMode).build();
@@ -532,7 +528,7 @@ public class TestCopyOnWriteActionExecutor extends HoodieClientTestBase implemen
     writeClient.startCommitWithTime(instantTime);
 
     // Insert new records
-    final JavaRDD<HoodieRecord> inputRecords = generateTestRecordsForBulkInsert(jsc, 50);
+    final JavaRDD<HoodieRecord> inputRecords = generateTestRecordsForBulkInsert(jsc, 10);
     writeClient.bulkInsert(inputRecords, instantTime);
 
     // Partition metafile should be created

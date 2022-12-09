@@ -19,7 +19,6 @@
 package org.apache.hudi.io;
 
 import org.apache.hudi.common.engine.TaskContextSupplier;
-import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieRecordPayload;
 import org.apache.hudi.config.HoodieWriteConfig;
 import org.apache.hudi.table.HoodieTable;
@@ -33,6 +32,6 @@ public abstract class WriteHandleFactory<T extends HoodieRecordPayload, I, K, O>
       String partitionPath, String fileIdPrefix, TaskContextSupplier taskContextSupplier);
 
   protected String getNextFileId(String idPfx) {
-    return FSUtils.createNewFileId(idPfx, numFilesWritten++);
+    return String.format("%s-%d", idPfx, numFilesWritten++);
   }
 }

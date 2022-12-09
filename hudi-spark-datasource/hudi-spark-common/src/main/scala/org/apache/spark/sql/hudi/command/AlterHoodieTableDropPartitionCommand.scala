@@ -18,7 +18,6 @@
 package org.apache.spark.sql.hudi.command
 
 import org.apache.hudi.HoodieSparkSqlWriter
-import org.apache.hudi.exception.HoodieException
 import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.CatalogTypes.TablePartitionSpec
 import org.apache.spark.sql.catalyst.catalog.HoodieCatalogTable
@@ -60,14 +59,11 @@ case class AlterHoodieTableDropPartitionCommand(
     // delete partition files by enabling cleaner and setting retention policies.
     val partitionsToDrop = getPartitionPathToDrop(hoodieCatalogTable, normalizedSpecs)
     val parameters = buildHoodieDropPartitionsConfig(sparkSession, hoodieCatalogTable, partitionsToDrop)
-    val (success, _, _, _, _, _) = HoodieSparkSqlWriter.write(
+    HoodieSparkSqlWriter.write(
       sparkSession.sqlContext,
       SaveMode.Append,
       parameters,
       sparkSession.emptyDataFrame)
-    if (!success) {
-      throw new HoodieException("Alter table command failed")
-    }
 
     sparkSession.catalog.refreshTable(tableIdentifier.unquotedString)
     logInfo(s"Finish execute alter table drop partition command for $fullTableName")

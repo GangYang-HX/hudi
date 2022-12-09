@@ -18,8 +18,6 @@
 
 package org.apache.hudi.table.action.bootstrap;
 
-import org.apache.avro.Schema;
-import org.apache.hadoop.fs.Path;
 import org.apache.hudi.avro.HoodieAvroUtils;
 import org.apache.hudi.avro.model.HoodieFileStatus;
 import org.apache.hudi.client.bootstrap.BootstrapWriteStatus;
@@ -32,13 +30,14 @@ import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.io.HoodieBootstrapHandle;
 import org.apache.hudi.keygen.KeyGeneratorInterface;
 import org.apache.hudi.table.HoodieTable;
+
+import org.apache.avro.Schema;
+import org.apache.hadoop.fs.Path;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.parquet.avro.AvroReadSupport;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.stream.Collectors;
 
 public abstract class BaseBootstrapMetadataHandler implements BootstrapMetadataHandler {
   private static final Logger LOG = LogManager.getLogger(ParquetBootstrapMetadataHandler.class);
@@ -58,10 +57,8 @@ public abstract class BaseBootstrapMetadataHandler implements BootstrapMetadataH
         table, partitionPath, FSUtils.createNewFileIdPfx(), table.getTaskContextSupplier());
     try {
       Schema avroSchema = getAvroSchema(sourceFilePath);
-      List<String> recordKeyColumns = keyGenerator.getRecordKeyFieldNames().stream()
-          .map(HoodieAvroUtils::getRootLevelFieldName)
-          .collect(Collectors.toList());
-      Schema recordKeySchema = HoodieAvroUtils.generateProjectionSchema(avroSchema, recordKeyColumns);
+      Schema recordKeySchema = HoodieAvroUtils.generateProjectionSchema(avroSchema,
+          keyGenerator.getRecordKeyFieldNames());
       LOG.info("Schema to be used for reading record Keys :" + recordKeySchema);
       AvroReadSupport.setAvroReadSchema(table.getHadoopConf(), recordKeySchema);
       AvroReadSupport.setRequestedProjection(table.getHadoopConf(), recordKeySchema);

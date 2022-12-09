@@ -55,19 +55,21 @@ public class CopyOnWriteRollbackActionExecutor<T extends HoodieRecordPayload, I,
                                            HoodieInstant commitInstant,
                                            boolean deleteInstants,
                                            boolean skipTimelinePublish,
+                                           boolean useMarkerBasedStrategy,
                                            boolean skipLocking) {
-    super(context, config, table, instantTime, commitInstant, deleteInstants, skipTimelinePublish, skipLocking);
+    super(context, config, table, instantTime, commitInstant, deleteInstants, skipTimelinePublish, useMarkerBasedStrategy, skipLocking);
   }
 
   @Override
   protected List<HoodieRollbackStat> executeRollback(HoodieRollbackPlan hoodieRollbackPlan) {
-    HoodieTimer rollbackTimer = HoodieTimer.start();
+    HoodieTimer rollbackTimer = new HoodieTimer();
+    rollbackTimer.startTimer();
 
     List<HoodieRollbackStat> stats = new ArrayList<>();
     HoodieActiveTimeline activeTimeline = table.getActiveTimeline();
 
     if (instantToRollback.isCompleted()) {
-      LOG.info("Unpublishing instant " + instantToRollback);
+      LOG.info("Un-publishing instant " + instantToRollback + ", deleteInstants=" + deleteInstants);
       resolvedInstant = activeTimeline.revertToInflight(instantToRollback);
       // reload meta-client to reflect latest timeline status
       table.getMetaClient().reloadActiveTimeline();

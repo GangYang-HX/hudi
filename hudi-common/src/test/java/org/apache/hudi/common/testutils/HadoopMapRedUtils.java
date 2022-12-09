@@ -18,17 +18,13 @@
 
 package org.apache.hudi.common.testutils;
 
-import org.apache.hudi.common.util.Option;
-
 import org.apache.hadoop.mapred.Counters;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.Reporter;
+import org.apache.hudi.common.util.Option;
 
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Utils for Hadoop MapRed in testing.
- */
 public class HadoopMapRedUtils {
 
   /**

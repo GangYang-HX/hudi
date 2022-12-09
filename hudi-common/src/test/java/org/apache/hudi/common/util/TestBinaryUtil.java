@@ -27,9 +27,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/**
- * Tests {@link BinaryUtil}.
- */
 public class TestBinaryUtil {
 
   @Test
@@ -115,7 +112,6 @@ public class TestBinaryUtil {
   private class ConvertResultWrapper<T> {
     T index;
     byte[] result;
-
     public ConvertResultWrapper(T index, byte[] result) {
       this.index = index;
       this.result = result;
@@ -125,7 +121,6 @@ public class TestBinaryUtil {
   private class OrginValueWrapper<T> {
     T index;
     T originValue;
-
     public OrginValueWrapper(T index, T originValue) {
       this.index = index;
       this.originValue = originValue;

@@ -18,6 +18,7 @@
 
 package org.apache.hudi.sink;
 
+import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.hudi.client.WriteStatus;
 import org.apache.hudi.common.model.HoodieAvroRecord;
 import org.apache.hudi.common.model.HoodieKey;
@@ -107,6 +108,8 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
    */
   private transient TotalSizeTracer tracer;
 
+  private Watermark watermark;
+
   /**
    * Constructs a StreamingSinkFunction.
    *
@@ -136,6 +139,10 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
     bufferRecord((HoodieRecord<?>) value);
   }
 
+  public void processWatermark(Watermark mark) {
+    watermark = mark;
+  }
+
   @Override
   public void close() {
     if (this.writeClient != null) {
@@ -148,7 +155,6 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
    * End input action for batch source.
    */
   public void endInput() {
-    super.endInput();
     flushRemaining(true);
     this.writeClient.cleanHandles();
     this.writeStatuses.clear();
@@ -421,7 +427,7 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
     List<HoodieRecord> records = bucket.writeBuffer();
     ValidationUtils.checkState(records.size() > 0, "Data bucket to flush has no buffering records");
     if (config.getBoolean(FlinkOptions.PRE_COMBINE)) {
-      records = FlinkWriteHelper.newInstance().deduplicateRecords(records, (HoodieIndex) null, -1, this.writeClient.getConfig().getSchema());
+      records = FlinkWriteHelper.newInstance().deduplicateRecords(records, (HoodieIndex) null, -1);
     }
     bucket.preWrite(records);
     final List<WriteStatus> writeStatus = new ArrayList<>(writeFunction.apply(records, instant));
@@ -432,8 +438,9 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
         .writeStatus(writeStatus)
         .lastBatch(false)
         .endInput(false)
+        .watermark(watermark == null ? Long.MIN_VALUE : watermark.getTimestamp())
         .build();
-
+    LOG.info("flushBucket send event,watermark {}", event.getWatermark());
     this.eventGateway.sendEventToCoordinator(event);
     writeStatuses.addAll(writeStatus);
     return true;
@@ -456,8 +463,7 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
             List<HoodieRecord> records = bucket.writeBuffer();
             if (records.size() > 0) {
               if (config.getBoolean(FlinkOptions.PRE_COMBINE)) {
-                records = FlinkWriteHelper.newInstance().deduplicateRecords(records, (HoodieIndex) null, -1,
-                    this.writeClient.getConfig().getSchema());
+                records = FlinkWriteHelper.newInstance().deduplicateRecords(records, (HoodieIndex) null, -1);
               }
               bucket.preWrite(records);
               writeStatus.addAll(writeFunction.apply(records, currentInstant));
@@ -475,8 +481,9 @@ public class StreamWriteFunction<I> extends AbstractStreamWriteFunction<I> {
         .writeStatus(writeStatus)
         .lastBatch(true)
         .endInput(endInput)
+        .watermark(watermark == null ? Long.MIN_VALUE : watermark.getTimestamp())
         .build();
-
+    LOG.info("flushRemaining send event,watermark {}, endInput {}", event.getWatermark(), endInput);
     this.eventGateway.sendEventToCoordinator(event);
     this.buckets.clear();
     this.tracer.reset();

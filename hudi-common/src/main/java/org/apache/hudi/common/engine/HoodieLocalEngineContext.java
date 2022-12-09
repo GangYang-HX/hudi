@@ -18,21 +18,22 @@
 
 package org.apache.hudi.common.engine;
 
+import org.apache.hadoop.conf.Configuration;
+
 import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.data.HoodieAccumulator;
 import org.apache.hudi.common.data.HoodieAtomicLongAccumulator;
 import org.apache.hudi.common.data.HoodieData;
-import org.apache.hudi.common.data.HoodieListData;
+import org.apache.hudi.common.data.HoodieList;
 import org.apache.hudi.common.function.SerializableBiFunction;
 import org.apache.hudi.common.function.SerializableConsumer;
 import org.apache.hudi.common.function.SerializableFunction;
 import org.apache.hudi.common.function.SerializablePairFlatMapFunction;
 import org.apache.hudi.common.function.SerializablePairFunction;
 import org.apache.hudi.common.util.Option;
+
 import org.apache.hudi.common.util.collection.ImmutablePair;
 import org.apache.hudi.common.util.collection.Pair;
-
-import org.apache.hadoop.conf.Configuration;
 
 import java.util.Collections;
 import java.util.Iterator;
@@ -70,12 +71,12 @@ public final class HoodieLocalEngineContext extends HoodieEngineContext {
 
   @Override
   public <T> HoodieData<T> emptyHoodieData() {
-    return HoodieListData.eager(Collections.emptyList());
+    return HoodieList.of(Collections.emptyList());
   }
 
   @Override
   public <T> HoodieData<T> parallelize(List<T> data, int parallelism) {
-    return HoodieListData.eager(data);
+    return HoodieList.of(data);
   }
 
   @Override

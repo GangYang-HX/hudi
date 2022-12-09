@@ -124,7 +124,7 @@ public interface TableFileSystemView {
      * @param maxInstantTime Max Instant Time
      * @return
      */
-    Stream<FileSlice> getLatestMergedFileSlicesBeforeOrOn(String partitionPath, String maxInstantTime);
+    public Stream<FileSlice> getLatestMergedFileSlicesBeforeOrOn(String partitionPath, String maxInstantTime);
 
     /**
      * Stream all the latest file slices, in the given range.
@@ -155,13 +155,6 @@ public interface TableFileSystemView {
    * @return Pair<Pair<InstantTime,CompactionOperation>>
    */
   Stream<Pair<String, CompactionOperation>> getPendingCompactionOperations();
-
-  /**
-   * Return Pending Compaction Operations.
-   *
-   * @return Pair<Pair<InstantTime,CompactionOperation>>
-   */
-  Stream<Pair<String, CompactionOperation>> getPendingLogCompactionOperations();
 
   /**
    * Last Known Instant on which the view is built.

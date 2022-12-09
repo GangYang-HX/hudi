@@ -24,7 +24,7 @@ import java.io.Serializable;
 import java.util.List;
 
 /**
- * Represents a commit event from the compaction task {@link CompactOperator}.
+ * Represents a commit event from the compaction task {@link CompactFunction}.
  */
 public class CompactionCommitEvent implements Serializable {
   private static final long serialVersionUID = 1L;

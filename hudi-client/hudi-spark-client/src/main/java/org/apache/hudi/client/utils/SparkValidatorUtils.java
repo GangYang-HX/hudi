@@ -24,7 +24,6 @@ import org.apache.hudi.client.validator.SparkPreCommitValidator;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.engine.HoodieEngineContext;
 import org.apache.hudi.common.model.BaseFile;
-import org.apache.hudi.common.model.HoodieWriteStat;
 import org.apache.hudi.common.table.view.HoodieTablePreCommitFileSystemView;
 import org.apache.hudi.common.util.ReflectionUtils;
 import org.apache.hudi.common.util.StringUtils;
@@ -51,7 +50,7 @@ import java.util.stream.Stream;
 import scala.collection.JavaConverters;
 
 /**
- * Spark validator utils to verify and run any pre-commit validators configured.
+ * Spark validator utils to verify and run any precommit validators configured.
  */
 public class SparkValidatorUtils {
   private static final Logger LOG = LogManager.getLogger(BaseSparkCommitActionExecutor.class);
@@ -72,7 +71,8 @@ public class SparkValidatorUtils {
       if (!writeMetadata.getWriteStats().isPresent()) {
         writeMetadata.setWriteStats(writeMetadata.getWriteStatuses().map(WriteStatus::getStat).collectAsList());
       }
-      Set<String> partitionsModified = writeMetadata.getWriteStats().get().stream().map(HoodieWriteStat::getPartitionPath).collect(Collectors.toSet());
+      Set<String> partitionsModified = writeMetadata.getWriteStats().get().stream().map(writeStats ->
+          writeStats.getPartitionPath()).collect(Collectors.toSet());
       SQLContext sqlContext = new SQLContext(HoodieSparkEngineContext.getSparkContext(context));
       // Refresh timeline to ensure validator sees the any other operations done on timeline (async operations such as other clustering/compaction/rollback)
       table.getMetaClient().reloadActiveTimeline();
@@ -80,9 +80,11 @@ public class SparkValidatorUtils {
       Dataset<Row> afterState  = getRecordsFromPendingCommits(sqlContext, partitionsModified, writeMetadata, table, instantTime).cache();
 
       Stream<SparkPreCommitValidator> validators = Arrays.stream(config.getPreCommitValidators().split(","))
-          .map(validatorClass -> ((SparkPreCommitValidator) ReflectionUtils.loadClass(validatorClass,
-              new Class<?>[] {HoodieSparkTable.class, HoodieEngineContext.class, HoodieWriteConfig.class},
-              table, context, config)));
+          .map(validatorClass -> {
+            return ((SparkPreCommitValidator) ReflectionUtils.loadClass(validatorClass,
+                new Class<?>[] {HoodieSparkTable.class, HoodieEngineContext.class, HoodieWriteConfig.class},
+                table, context, config));
+          });
 
       boolean allSuccess = validators.map(v -> runValidatorAsync(v, writeMetadata, beforeState, afterState, instantTime)).map(CompletableFuture::join)
           .reduce(true, Boolean::logicalAnd);

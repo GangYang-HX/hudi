@@ -46,7 +46,7 @@ import org.apache.hudi.exception.HoodieNotSupportedException;
 import org.apache.hudi.exception.HoodieUpsertException;
 import org.apache.hudi.io.HoodieCreateHandle;
 import org.apache.hudi.io.HoodieMergeHandle;
-import org.apache.hudi.io.HoodieMergeHandleFactory;
+import org.apache.hudi.io.HoodieSortedMergeHandle;
 import org.apache.hudi.io.HoodieWriteHandle;
 import org.apache.hudi.keygen.BaseKeyGenerator;
 import org.apache.hudi.keygen.factory.HoodieAvroKeyGeneratorFactory;
@@ -57,16 +57,16 @@ import org.apache.hudi.table.action.clean.CleanActionExecutor;
 import org.apache.hudi.table.action.clean.CleanPlanActionExecutor;
 import org.apache.hudi.table.action.cluster.ClusteringPlanActionExecutor;
 import org.apache.hudi.table.action.commit.FlinkDeleteCommitActionExecutor;
-import org.apache.hudi.table.action.commit.FlinkDeletePartitionCommitActionExecutor;
 import org.apache.hudi.table.action.commit.FlinkInsertCommitActionExecutor;
 import org.apache.hudi.table.action.commit.FlinkInsertOverwriteCommitActionExecutor;
 import org.apache.hudi.table.action.commit.FlinkInsertOverwriteTableCommitActionExecutor;
 import org.apache.hudi.table.action.commit.FlinkInsertPreppedCommitActionExecutor;
+import org.apache.hudi.table.action.commit.FlinkMergeHelper;
 import org.apache.hudi.table.action.commit.FlinkUpsertCommitActionExecutor;
 import org.apache.hudi.table.action.commit.FlinkUpsertPreppedCommitActionExecutor;
-import org.apache.hudi.table.action.commit.HoodieMergeHelper;
 import org.apache.hudi.table.action.rollback.BaseRollbackPlanActionExecutor;
-import org.apache.hudi.table.action.rollback.CopyOnWriteRollbackActionExecutor;
+import org.apache.hudi.table.action.rollback.FlinkCopyOnWriteRollbackActionExecutor;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -148,7 +148,7 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
    * @param context     HoodieEngineContext
    * @param writeHandle The write handle
    * @param instantTime Instant Time for the action
-   * @param keys        {@link List} of {@link HoodieKey}s to be deleted
+   * @param keys   {@link List} of {@link HoodieKey}s to be deleted
    * @return HoodieWriteMetadata
    */
   public HoodieWriteMetadata<List<WriteStatus>> delete(
@@ -167,9 +167,9 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
    * <p>Specifies the write handle explicitly in order to have fine grained control with
    * the underneath file.
    *
-   * @param context        HoodieEngineContext
-   * @param instantTime    Instant Time for the action
-   * @param preppedRecords hoodieRecords to upsert
+   * @param context    HoodieEngineContext
+   * @param instantTime Instant Time for the action
+   * @param preppedRecords  hoodieRecords to upsert
    * @return HoodieWriteMetadata
    */
   public HoodieWriteMetadata<List<WriteStatus>> upsertPrepped(
@@ -188,9 +188,9 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
    * <p>Specifies the write handle explicitly in order to have fine grained control with
    * the underneath file.
    *
-   * @param context        HoodieEngineContext
-   * @param instantTime    Instant Time for the action
-   * @param preppedRecords hoodieRecords to upsert
+   * @param context    HoodieEngineContext
+   * @param instantTime Instant Time for the action
+   * @param preppedRecords  hoodieRecords to upsert
    * @return HoodieWriteMetadata
    */
   public HoodieWriteMetadata<List<WriteStatus>> insertPrepped(
@@ -243,8 +243,8 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
   }
 
   @Override
-  public HoodieWriteMetadata<List<WriteStatus>> deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions) {
-    return new FlinkDeletePartitionCommitActionExecutor<>(context, config, this, instantTime, partitions).execute();
+  public HoodieWriteMetadata deletePartitions(HoodieEngineContext context, String instantTime, List<String> partitions) {
+    throw new HoodieNotSupportedException("DeletePartitions is not supported yet");
   }
 
   @Override
@@ -288,7 +288,7 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
 
   @Override
   public Option<HoodieClusteringPlan> scheduleClustering(final HoodieEngineContext context, final String instantTime, final Option<Map<String, String>> extraMetadata) {
-    return new ClusteringPlanActionExecutor<>(context, config, this, instantTime, extraMetadata).execute();
+    return new ClusteringPlanActionExecutor<>(context, config,this, instantTime, extraMetadata).execute();
   }
 
   @Override
@@ -307,8 +307,8 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
   }
 
   /**
-   * @param context       HoodieEngineContext
-   * @param instantTime   Instant Time for scheduling cleaning
+   * @param context HoodieEngineContext
+   * @param instantTime Instant Time for scheduling cleaning
    * @param extraMetadata additional metadata to write into plan
    * @return
    */
@@ -332,7 +332,7 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
   @Override
   public HoodieRollbackMetadata rollback(HoodieEngineContext context, String rollbackInstantTime, HoodieInstant commitInstant,
                                          boolean deleteInstants, boolean skipLocking) {
-    return new CopyOnWriteRollbackActionExecutor(context, config, this, rollbackInstantTime, commitInstant, deleteInstants, skipLocking).execute();
+    return new FlinkCopyOnWriteRollbackActionExecutor(context, config, this, rollbackInstantTime, commitInstant, deleteInstants, skipLocking).execute();
   }
 
   @Override
@@ -372,13 +372,13 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
     return handleUpdateInternal(upsertHandle, instantTime, fileId);
   }
 
-  protected Iterator<List<WriteStatus>> handleUpdateInternal(HoodieMergeHandle<?, ?, ?, ?> upsertHandle, String instantTime,
+  protected Iterator<List<WriteStatus>> handleUpdateInternal(HoodieMergeHandle<?,?,?,?> upsertHandle, String instantTime,
                                                              String fileId) throws IOException {
     if (upsertHandle.getOldFilePath() == null) {
       throw new HoodieUpsertException(
           "Error in finding the old file path at commit " + instantTime + " for fileId: " + fileId);
     } else {
-      HoodieMergeHelper.newInstance().runMerge(this, upsertHandle);
+      FlinkMergeHelper.newInstance().runMerge(this, upsertHandle);
     }
 
     // TODO(vc): This needs to be revisited
@@ -401,8 +401,13 @@ public class HoodieFlinkCopyOnWriteTable<T extends HoodieRecordPayload>
             + "columns are disabled. Please choose the right key generator if you wish to disable meta fields.", e);
       }
     }
-    return HoodieMergeHandleFactory.create(config, instantTime, this, keyToNewRecords, partitionPath, fileId,
-        dataFileToBeMerged, taskContextSupplier, keyGeneratorOpt);
+    if (requireSortedRecords()) {
+      return new HoodieSortedMergeHandle<>(config, instantTime, this, keyToNewRecords, partitionPath, fileId,
+          dataFileToBeMerged, taskContextSupplier, keyGeneratorOpt);
+    } else {
+      return new HoodieMergeHandle<>(config, instantTime, this, keyToNewRecords, partitionPath, fileId,
+          dataFileToBeMerged, taskContextSupplier, keyGeneratorOpt);
+    }
   }
 
   @Override

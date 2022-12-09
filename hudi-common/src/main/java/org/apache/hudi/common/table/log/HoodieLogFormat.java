@@ -141,8 +141,6 @@ public interface HoodieLogFormat {
     private Path parentPath;
     // Log File Write Token
     private String logWriteToken;
-    // optional file suffix
-    private String suffix;
     // Rollover Log file write token
     private String rolloverLogWriteToken;
 
@@ -163,11 +161,6 @@ public interface HoodieLogFormat {
 
     public WriterBuilder withLogWriteToken(String logWriteToken) {
       this.logWriteToken = logWriteToken;
-      return this;
-    }
-
-    public WriterBuilder withSuffix(String suffix) {
-      this.suffix = suffix;
       return this;
     }
 
@@ -255,14 +248,6 @@ public interface HoodieLogFormat {
         logVersion += 1;
         fileLen = 0L;
         logWriteToken = rolloverLogWriteToken;
-      }
-
-      if (suffix != null) {
-        // A little hacky to simplify the file name concatenation:
-        // patch the write token with an optional suffix
-        // instead of adding a new extension
-        logWriteToken = logWriteToken + suffix;
-        rolloverLogWriteToken = rolloverLogWriteToken + suffix;
       }
 
       Path logPath = new Path(parentPath,

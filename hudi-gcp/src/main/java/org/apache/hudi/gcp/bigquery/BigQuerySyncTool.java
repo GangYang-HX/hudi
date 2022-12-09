@@ -19,25 +19,18 @@
 
 package org.apache.hudi.gcp.bigquery;
 
+import org.apache.hudi.common.config.TypedProperties;
+import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.model.HoodieTableType;
 import org.apache.hudi.common.util.ValidationUtils;
-import org.apache.hudi.sync.common.HoodieSyncTool;
+import org.apache.hudi.sync.common.AbstractSyncTool;
 import org.apache.hudi.sync.common.util.ManifestFileWriter;
 
 import com.beust.jcommander.JCommander;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
-
-import java.util.Properties;
-
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_ASSUME_DATE_PARTITIONING;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_DATASET_NAME;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_PARTITION_FIELDS;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_SOURCE_URI;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_SOURCE_URI_PREFIX;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_SYNC_BASE_PATH;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_TABLE_NAME;
-import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_USE_FILE_LISTING_FROM_METADATA;
 
 /**
  * Tool to sync a hoodie table with a big query table. Either use it as an api
@@ -47,28 +40,26 @@ import static org.apache.hudi.gcp.bigquery.BigQuerySyncConfig.BIGQUERY_SYNC_USE_
  *
  * @Experimental
  */
-public class BigQuerySyncTool extends HoodieSyncTool {
+public class BigQuerySyncTool extends AbstractSyncTool {
 
   private static final Logger LOG = LogManager.getLogger(BigQuerySyncTool.class);
 
-  public final BigQuerySyncConfig config;
-  public final String tableName;
+  public final BigQuerySyncConfig cfg;
   public final String manifestTableName;
   public final String versionsTableName;
   public final String snapshotViewName;
 
-  public BigQuerySyncTool(Properties props) {
-    super(props);
-    this.config = new BigQuerySyncConfig(props);
-    this.tableName = config.getString(BIGQUERY_SYNC_TABLE_NAME);
-    this.manifestTableName = tableName + "_manifest";
-    this.versionsTableName = tableName + "_versions";
-    this.snapshotViewName = tableName;
+  public BigQuerySyncTool(TypedProperties properties, Configuration conf, FileSystem fs) {
+    super(properties, conf, fs);
+    cfg = BigQuerySyncConfig.fromProps(properties);
+    manifestTableName = cfg.tableName + "_manifest";
+    versionsTableName = cfg.tableName + "_versions";
+    snapshotViewName = cfg.tableName;
   }
 
   @Override
   public void syncHoodieTable() {
-    try (HoodieBigQuerySyncClient bqSyncClient = new HoodieBigQuerySyncClient(config)) {
+    try (HoodieBigQuerySyncClient bqSyncClient = new HoodieBigQuerySyncClient(BigQuerySyncConfig.fromProps(props), fs)) {
       switch (bqSyncClient.getTableType()) {
         case COPY_ON_WRITE:
           syncCoWTable(bqSyncClient);
@@ -78,7 +69,7 @@ public class BigQuerySyncTool extends HoodieSyncTool {
           throw new UnsupportedOperationException(bqSyncClient.getTableType() + " table type is not supported yet.");
       }
     } catch (Exception e) {
-      throw new HoodieBigQuerySyncException("Failed to sync BigQuery for table:" + tableName, e);
+      throw new HoodieBigQuerySyncException("Got runtime exception when big query syncing " + cfg.tableName, e);
     }
   }
 
@@ -87,14 +78,14 @@ public class BigQuerySyncTool extends HoodieSyncTool {
     LOG.info("Sync hoodie table " + snapshotViewName + " at base path " + bqSyncClient.getBasePath());
 
     if (!bqSyncClient.datasetExists()) {
-      throw new HoodieBigQuerySyncException("Dataset not found: " + config.getString(BIGQUERY_SYNC_DATASET_NAME));
+      throw new HoodieBigQuerySyncException("Dataset not found: " + cfg);
     }
 
     ManifestFileWriter manifestFileWriter = ManifestFileWriter.builder()
-        .setConf(config.getHadoopConf())
-        .setBasePath(config.getString(BIGQUERY_SYNC_SYNC_BASE_PATH))
-        .setUseFileListingFromMetadata(config.getBoolean(BIGQUERY_SYNC_USE_FILE_LISTING_FROM_METADATA))
-        .setAssumeDatePartitioning(config.getBoolean(BIGQUERY_SYNC_ASSUME_DATE_PARTITIONING))
+        .setConf(conf)
+        .setBasePath(cfg.basePath)
+        .setUseFileListingFromMetadata(cfg.useFileListingFromMetadata)
+        .setAssumeDatePartitioning(cfg.assumeDatePartitioning)
         .build();
     manifestFileWriter.writeManifestFile();
 
@@ -103,11 +94,7 @@ public class BigQuerySyncTool extends HoodieSyncTool {
       LOG.info("Manifest table creation complete for " + manifestTableName);
     }
     if (!bqSyncClient.tableExists(versionsTableName)) {
-      bqSyncClient.createVersionsTable(
-          versionsTableName,
-          config.getString(BIGQUERY_SYNC_SOURCE_URI),
-          config.getString(BIGQUERY_SYNC_SOURCE_URI_PREFIX),
-          config.getSplitStrings(BIGQUERY_SYNC_PARTITION_FIELDS));
+      bqSyncClient.createVersionsTable(versionsTableName, cfg.sourceUri, cfg.sourceUriPrefix, cfg.partitionFields);
       LOG.info("Versions table creation complete for " + versionsTableName);
     }
     if (!bqSyncClient.tableExists(snapshotViewName)) {
@@ -120,13 +107,13 @@ public class BigQuerySyncTool extends HoodieSyncTool {
   }
 
   public static void main(String[] args) {
-    final BigQuerySyncConfig.BigQuerySyncConfigParams params = new BigQuerySyncConfig.BigQuerySyncConfigParams();
-    JCommander cmd = JCommander.newBuilder().addObject(params).build();
-    cmd.parse(args);
-    if (params.isHelp()) {
+    BigQuerySyncConfig cfg = new BigQuerySyncConfig();
+    JCommander cmd = new JCommander(cfg, null, args);
+    if (cfg.help || args.length == 0) {
       cmd.usage();
-      System.exit(0);
+      System.exit(1);
     }
-    new BigQuerySyncTool(params.toProps()).syncHoodieTable();
+    FileSystem fs = FSUtils.getFs(cfg.basePath, new Configuration());
+    new BigQuerySyncTool(cfg.toProps(), fs.getConf(), fs).syncHoodieTable();
   }
 }

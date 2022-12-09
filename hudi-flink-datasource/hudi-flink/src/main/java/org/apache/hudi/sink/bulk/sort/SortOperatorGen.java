@@ -26,6 +26,7 @@ import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.types.logical.RowType;
 
 import java.util.Arrays;
+import java.util.stream.IntStream;
 
 /**
  * Tools to generate the sort operator.
@@ -49,9 +50,7 @@ public class SortOperatorGen {
 
   public SortCodeGenerator createSortCodeGenerator() {
     SortSpec.SortSpecBuilder builder = SortSpec.builder();
-    for (int sortIndex : sortIndices) {
-      builder.addField(sortIndex, true, true);
-    }
+    IntStream.range(0, sortIndices.length).forEach(i -> builder.addField(i, true, true));
     return new SortCodeGenerator(tableConfig, rowType, builder.build());
   }
 }

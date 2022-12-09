@@ -25,14 +25,12 @@ import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.util.CompactionUtils;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.table.HoodieFlinkTable;
-import org.apache.hudi.table.marker.WriteMarkersFactory;
 import org.apache.hudi.util.CompactionUtil;
 import org.apache.hudi.util.FlinkTables;
 
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.operators.AbstractStreamOperator;
-import org.apache.flink.streaming.api.operators.BoundedOneInput;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperator;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
@@ -48,7 +46,7 @@ import static java.util.stream.Collectors.toList;
  * <p>It should be singleton to avoid conflicts.
  */
 public class CompactionPlanOperator extends AbstractStreamOperator<CompactionPlanEvent>
-    implements OneInputStreamOperator<Object, CompactionPlanEvent>, BoundedOneInput {
+    implements OneInputStreamOperator<Object, CompactionPlanEvent> {
 
   /**
    * Config options.
@@ -90,8 +88,7 @@ public class CompactionPlanOperator extends AbstractStreamOperator<CompactionPla
       // when the earliest inflight instant has timed out, assumes it has failed
       // already and just rolls it back.
 
-      // comment out: do we really need the timeout rollback ?
-      // CompactionUtil.rollbackEarliestCompaction(table, conf);
+      CompactionUtil.rollbackEarliestCompaction(table, conf);
       scheduleCompaction(table, checkpointId);
     } catch (Throwable throwable) {
       // make it fail-safe
@@ -101,11 +98,21 @@ public class CompactionPlanOperator extends AbstractStreamOperator<CompactionPla
 
   private void scheduleCompaction(HoodieFlinkTable<?> table, long checkpointId) throws IOException {
     // the first instant takes the highest priority.
-    Option<HoodieInstant> firstRequested = table.getActiveTimeline().filterPendingCompactionTimeline()
+    HoodieTimeline pendingCompactionTimeline = table.getActiveTimeline().filterPendingCompactionTimeline();
+    Option<HoodieInstant> firstRequested = pendingCompactionTimeline
         .filter(instant -> instant.getState() == HoodieInstant.State.REQUESTED).firstInstant();
+    LOG.info("scheduleCompaction instant :{} checkpointId:{}", firstRequested, checkpointId);
+
     if (!firstRequested.isPresent()) {
       // do nothing.
       LOG.info("No compaction plan for checkpoint " + checkpointId);
+      return;
+    }
+
+    Option<HoodieInstant> firstInflight = pendingCompactionTimeline
+        .filter(instant -> instant.getState() == HoodieInstant.State.INFLIGHT).firstInstant();
+    if (firstInflight.isPresent()) {
+      LOG.warn("Waiting for pending compaction instant : " + firstInflight + " to complete, skip scheduling new compaction plans");
       return;
     }
 
@@ -128,10 +135,7 @@ public class CompactionPlanOperator extends AbstractStreamOperator<CompactionPla
 
       List<CompactionOperation> operations = compactionPlan.getOperations().stream()
           .map(CompactionOperation::convertFromAvroRecordInstance).collect(toList());
-      LOG.info("Execute compaction plan for instant {} as {} file groups", compactionInstantTime, operations.size());
-      WriteMarkersFactory
-          .get(table.getConfig().getMarkersType(), table, compactionInstantTime)
-          .deleteMarkerDir(table.getContext(), table.getConfig().getMarkersDeleteParallelism());
+      LOG.info("Execute compaction plan for instant {} as {} file groups. operations: {}", compactionInstantTime, operations.size(), operations);
       for (CompactionOperation operation : operations) {
         output.collect(new StreamRecord<>(new CompactionPlanEvent(compactionInstantTime, operation)));
       }
@@ -141,11 +145,5 @@ public class CompactionPlanOperator extends AbstractStreamOperator<CompactionPla
   @VisibleForTesting
   public void setOutput(Output<StreamRecord<CompactionPlanEvent>> output) {
     this.output = output;
-  }
-
-  @Override
-  public void endInput() throws Exception {
-    // Called when the input data ends, only used in batch mode.
-    notifyCheckpointComplete(-1);
   }
 }

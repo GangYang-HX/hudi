@@ -52,7 +52,6 @@ import org.apache.hudi.common.util.collection.Pair;
 import org.apache.hudi.exception.HoodieException;
 import org.apache.hudi.exception.HoodieIOException;
 import org.apache.hudi.exception.HoodieValidationException;
-import org.apache.hudi.exception.TableNotFoundException;
 import org.apache.hudi.io.storage.HoodieFileReader;
 import org.apache.hudi.io.storage.HoodieFileReaderFactory;
 import org.apache.hudi.metadata.HoodieTableMetadata;
@@ -400,14 +399,12 @@ public class HoodieMetadataTableValidator implements Serializable {
     Set<String> baseFilesForCleaning = Collections.emptySet();
 
     // check metadata table is available to read.
-    if (!checkMetadataTableIsAvailable()) {
-      return;
-    }
+    checkMetadataTableIsAvailable();
 
     if (cfg.skipDataFilesForCleaning) {
       HoodieTimeline inflightCleaningTimeline = metaClient.getActiveTimeline().getCleanerTimeline().filterInflights();
 
-      baseFilesForCleaning = inflightCleaningTimeline.getInstantsAsStream().flatMap(instant -> {
+      baseFilesForCleaning = inflightCleaningTimeline.getInstants().flatMap(instant -> {
         try {
           // convert inflight instant to requested and get clean plan
           instant = new HoodieInstant(HoodieInstant.State.REQUESTED, instant.getAction(), instant.getTimestamp());
@@ -431,12 +428,6 @@ public class HoodieMetadataTableValidator implements Serializable {
 
     HoodieSparkEngineContext engineContext = new HoodieSparkEngineContext(jsc);
     List<String> allPartitions = validatePartitions(engineContext, basePath);
-
-    if (allPartitions.isEmpty()) {
-      LOG.warn("The result of getting all partitions is null or empty, skip current validation.");
-      return;
-    }
-
     HoodieMetadataValidationContext metadataTableBasedContext =
         new HoodieMetadataValidationContext(engineContext, cfg, metaClient, true);
     HoodieMetadataValidationContext fsBasedContext =
@@ -474,7 +465,7 @@ public class HoodieMetadataTableValidator implements Serializable {
    * Check metadata is initialized and available to ready.
    * If not we will log.warn and skip current validation.
    */
-  private boolean checkMetadataTableIsAvailable() {
+  private void checkMetadataTableIsAvailable() {
     try {
       HoodieTableMetaClient mdtMetaClient = HoodieTableMetaClient.builder()
           .setConf(jsc.hadoopConfiguration()).setBasePath(new Path(cfg.basePath, HoodieTableMetaClient.METADATA_TABLE_FOLDER_PATH).toString())
@@ -482,21 +473,10 @@ public class HoodieMetadataTableValidator implements Serializable {
           .build();
       int finishedInstants = mdtMetaClient.getActiveTimeline().filterCompletedInstants().countInstants();
       if (finishedInstants == 0) {
-        if (metaClient.getActiveTimeline().filterCompletedInstants().countInstants() == 0) {
-          LOG.info("There is no completed instant both in metadata table and corresponding data table.");
-          return false;
-        } else {
-          throw new HoodieValidationException("There is no completed instant for metadata table.");
-        }
+        throw new HoodieValidationException("There is no completed instant for metadata table.");
       }
-      return true;
-    } catch (TableNotFoundException tbe) {
-      // Suppress the TableNotFound exception if Metadata table is not available to read for now
-      LOG.warn("Metadata table is not found. Skip current validation.");
-      return false;
     } catch (Exception ex) {
-      LOG.warn("Metadata table is not available to read for now, ", ex);
-      return false;
+      LOG.warn("Metadata table is not available to ready for now, ", ex);
     }
   }
 

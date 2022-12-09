@@ -21,8 +21,8 @@ package org.apache.hudi.aws.sync;
 import org.apache.hudi.common.fs.FSUtils;
 import org.apache.hudi.common.util.CollectionUtils;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.hive.AbstractHiveSyncHoodieClient;
 import org.apache.hudi.hive.HiveSyncConfig;
-import org.apache.hudi.sync.common.HoodieSyncClient;
 import org.apache.hudi.sync.common.model.Partition;
 
 import com.amazonaws.services.glue.AWSGlue;
@@ -30,8 +30,6 @@ import com.amazonaws.services.glue.AWSGlueClientBuilder;
 import com.amazonaws.services.glue.model.AlreadyExistsException;
 import com.amazonaws.services.glue.model.BatchCreatePartitionRequest;
 import com.amazonaws.services.glue.model.BatchCreatePartitionResult;
-import com.amazonaws.services.glue.model.BatchDeletePartitionRequest;
-import com.amazonaws.services.glue.model.BatchDeletePartitionResult;
 import com.amazonaws.services.glue.model.BatchUpdatePartitionRequest;
 import com.amazonaws.services.glue.model.BatchUpdatePartitionRequestEntry;
 import com.amazonaws.services.glue.model.BatchUpdatePartitionResult;
@@ -47,12 +45,15 @@ import com.amazonaws.services.glue.model.GetPartitionsRequest;
 import com.amazonaws.services.glue.model.GetPartitionsResult;
 import com.amazonaws.services.glue.model.GetTableRequest;
 import com.amazonaws.services.glue.model.PartitionInput;
-import com.amazonaws.services.glue.model.PartitionValueList;
 import com.amazonaws.services.glue.model.SerDeInfo;
 import com.amazonaws.services.glue.model.StorageDescriptor;
 import com.amazonaws.services.glue.model.Table;
 import com.amazonaws.services.glue.model.TableInput;
 import com.amazonaws.services.glue.model.UpdateTableRequest;
+import org.apache.avro.Schema;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.apache.parquet.schema.MessageType;
@@ -67,22 +68,16 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 import static org.apache.hudi.aws.utils.S3Utils.s3aToS3;
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_CREATE_MANAGED_TABLE;
-import static org.apache.hudi.hive.HiveSyncConfigHolder.HIVE_SUPPORT_TIMESTAMP_TYPE;
-import static org.apache.hudi.common.util.MapUtils.isNullOrEmpty;
+import static org.apache.hudi.common.util.MapUtils.nonEmpty;
 import static org.apache.hudi.hive.util.HiveSchemaUtil.getPartitionKeyType;
 import static org.apache.hudi.hive.util.HiveSchemaUtil.parquetSchemaToMapSchema;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_DATABASE_NAME;
-import static org.apache.hudi.sync.common.HoodieSyncConfig.META_SYNC_PARTITION_FIELDS;
 import static org.apache.hudi.sync.common.util.TableUtils.tableId;
 
 /**
  * This class implements all the AWS APIs to enable syncing of a Hudi Table with the
  * AWS Glue Data Catalog (https://docs.aws.amazon.com/glue/latest/dg/populate-data-catalog.html).
- *
- * @Experimental
  */
-public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
+public class AWSGlueCatalogSyncClient extends AbstractHiveSyncHoodieClient {
 
   private static final Logger LOG = LogManager.getLogger(AWSGlueCatalogSyncClient.class);
   private static final int MAX_PARTITIONS_PER_REQUEST = 100;
@@ -90,10 +85,10 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
   private final AWSGlue awsGlue;
   private final String databaseName;
 
-  public AWSGlueCatalogSyncClient(HiveSyncConfig config) {
-    super(config);
+  public AWSGlueCatalogSyncClient(HiveSyncConfig syncConfig, Configuration hadoopConf, FileSystem fs) {
+    super(syncConfig, hadoopConf, fs);
     this.awsGlue = AWSGlueClientBuilder.standard().build();
-    this.databaseName = config.getStringOrDefault(META_SYNC_DATABASE_NAME);
+    this.databaseName = syncConfig.databaseName;
   }
 
   @Override
@@ -129,7 +124,7 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
       StorageDescriptor sd = table.getStorageDescriptor();
       List<PartitionInput> partitionInputs = partitionsToAdd.stream().map(partition -> {
         StorageDescriptor partitionSd = sd.clone();
-        String fullPartitionPath = FSUtils.getPartitionPath(getBasePath(), partition).toString();
+        String fullPartitionPath = FSUtils.getPartitionPath(syncConfig.basePath, partition).toString();
         List<String> partitionValues = partitionValueExtractor.extractPartitionValuesInPath(partition);
         partitionSd.setLocation(fullPartitionPath);
         return new PartitionInput().withValues(partitionValues).withStorageDescriptor(partitionSd);
@@ -141,12 +136,8 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
 
         BatchCreatePartitionResult result = awsGlue.batchCreatePartition(request);
         if (CollectionUtils.nonEmpty(result.getErrors())) {
-          if (result.getErrors().stream().allMatch((error) -> "AlreadyExistsException".equals(error.getErrorDetail().getErrorCode()))) {
-            LOG.warn("Partitions already exist in glue: " + result.getErrors());
-          } else {
-            throw new HoodieGlueSyncException("Fail to add partitions to " + tableId(databaseName, tableName)
+          throw new HoodieGlueSyncException("Fail to add partitions to " + tableId(databaseName, tableName)
               + " with error(s): " + result.getErrors());
-          }
         }
         Thread.sleep(BATCH_REQUEST_SLEEP_MILLIS);
       }
@@ -167,9 +158,9 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
       StorageDescriptor sd = table.getStorageDescriptor();
       List<BatchUpdatePartitionRequestEntry> updatePartitionEntries = changedPartitions.stream().map(partition -> {
         StorageDescriptor partitionSd = sd.clone();
-        String fullPartitionPath = FSUtils.getPartitionPath(getBasePath(), partition).toString();
+        String fullPartitionPath = FSUtils.getPartitionPath(syncConfig.basePath, partition).toString();
         List<String> partitionValues = partitionValueExtractor.extractPartitionValuesInPath(partition);
-        partitionSd.setLocation(fullPartitionPath);
+        sd.setLocation(fullPartitionPath);
         PartitionInput partitionInput = new PartitionInput().withValues(partitionValues).withStorageDescriptor(partitionSd);
         return new BatchUpdatePartitionRequestEntry().withPartitionInput(partitionInput).withPartitionValueList(partitionValues);
       }).collect(Collectors.toList());
@@ -192,35 +183,7 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
 
   @Override
   public void dropPartitions(String tableName, List<String> partitionsToDrop) {
-    if (CollectionUtils.isNullOrEmpty(partitionsToDrop)) {
-      LOG.info("No partitions to drop for " + tableName);
-      return;
-    }
-    LOG.info("Drop " + partitionsToDrop.size() + "partition(s) in table " + tableId(databaseName, tableName));
-    try {
-      for (List<String> batch : CollectionUtils.batches(partitionsToDrop, MAX_PARTITIONS_PER_REQUEST)) {
-
-        List<PartitionValueList> partitionValueLists = batch.stream().map(partition -> {
-          PartitionValueList partitionValueList = new PartitionValueList();
-          partitionValueList.setValues(partitionValueExtractor.extractPartitionValuesInPath(partition));
-          return partitionValueList;
-        }).collect(Collectors.toList());
-
-        BatchDeletePartitionRequest batchDeletePartitionRequest = new BatchDeletePartitionRequest()
-            .withDatabaseName(databaseName)
-            .withTableName(tableName)
-            .withPartitionsToDelete(partitionValueLists);
-
-        BatchDeletePartitionResult result = awsGlue.batchDeletePartition(batchDeletePartitionRequest);
-        if (CollectionUtils.nonEmpty(result.getErrors())) {
-          throw new HoodieGlueSyncException("Fail to drop partitions to " + tableId(databaseName, tableName)
-              + " with error(s): " + result.getErrors());
-        }
-        Thread.sleep(BATCH_REQUEST_SLEEP_MILLIS);
-      }
-    } catch (Exception e) {
-      throw new HoodieGlueSyncException("Fail to drop partitions to " + tableId(databaseName, tableName), e);
-    }
+    throw new UnsupportedOperationException("Not support dropPartitionsToTable yet.");
   }
 
   /**
@@ -228,24 +191,27 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
    */
   @Override
   public void updateTableProperties(String tableName, Map<String, String> tableProperties) {
-    if (isNullOrEmpty(tableProperties)) {
+    if (nonEmpty(tableProperties)) {
       return;
     }
     try {
-      updateTableParameters(awsGlue, databaseName, tableName, tableProperties, false);
+      updateTableParameters(awsGlue, databaseName, tableName, tableProperties, true);
     } catch (Exception e) {
       throw new HoodieGlueSyncException("Fail to update properties for table " + tableId(databaseName, tableName), e);
     }
   }
 
   @Override
-  public void updateTableSchema(String tableName, MessageType newSchema) {
+  public void updateTableDefinition(String tableName, MessageType newSchema) {
     // ToDo Cascade is set in Hive meta sync, but need to investigate how to configure it for Glue meta
-    boolean cascade = config.getSplitStrings(META_SYNC_PARTITION_FIELDS).size() > 0;
+    boolean cascade = syncConfig.partitionFields.size() > 0;
     try {
       Table table = getTable(awsGlue, databaseName, tableName);
-      Map<String, String> newSchemaMap = parquetSchemaToMapSchema(newSchema, config.getBoolean(HIVE_SUPPORT_TIMESTAMP_TYPE), false);
-      List<Column> newColumns = getColumnsFromSchema(newSchemaMap);
+      Map<String, String> newSchemaMap = parquetSchemaToMapSchema(newSchema, syncConfig.supportTimestamp, false);
+      List<Column> newColumns = newSchemaMap.keySet().stream().map(key -> {
+        String keyType = getPartitionKeyType(newSchemaMap, key);
+        return new Column().withName(key).withType(keyType.toLowerCase()).withComment("");
+      }).collect(Collectors.toList());
       StorageDescriptor sd = table.getStorageDescriptor();
       sd.setColumns(newColumns);
 
@@ -270,6 +236,21 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
   }
 
   @Override
+  public List<FieldSchema> getTableCommentUsingMetastoreClient(String tableName) {
+    throw new UnsupportedOperationException("Not supported: `getTableCommentUsingMetastoreClient`");
+  }
+
+  @Override
+  public void updateTableComments(String tableName, List<FieldSchema> oldSchema, List<Schema.Field> newSchema) {
+    throw new UnsupportedOperationException("Not supported: `updateTableComments`");
+  }
+
+  @Override
+  public void updateTableComments(String tableName, List<FieldSchema> oldSchema, Map<String, String> newComments) {
+    throw new UnsupportedOperationException("Not supported: `updateTableComments`");
+  }
+
+  @Override
   public void createTable(String tableName,
       MessageType storageSchema,
       String inputFormatClass,
@@ -282,27 +263,32 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
     }
     CreateTableRequest request = new CreateTableRequest();
     Map<String, String> params = new HashMap<>();
-    if (!config.getBoolean(HIVE_CREATE_MANAGED_TABLE)) {
+    if (!syncConfig.createManagedTable) {
       params.put("EXTERNAL", "TRUE");
     }
     params.putAll(tableProperties);
 
     try {
-      Map<String, String> mapSchema = parquetSchemaToMapSchema(storageSchema, config.getBoolean(HIVE_SUPPORT_TIMESTAMP_TYPE), false);
+      Map<String, String> mapSchema = parquetSchemaToMapSchema(storageSchema, syncConfig.supportTimestamp, false);
 
-      List<Column> schemaWithoutPartitionKeys = getColumnsFromSchema(mapSchema);
-
-      // now create the schema partition
-      List<Column> schemaPartitionKeys = config.getSplitStrings(META_SYNC_PARTITION_FIELDS).stream().map(partitionKey -> {
-        String keyType = getPartitionKeyType(mapSchema, partitionKey);
-        return new Column().withName(partitionKey).withType(keyType.toLowerCase()).withComment("");
-      }).collect(Collectors.toList());
+      List<Column> schemaPartitionKeys = new ArrayList<>();
+      List<Column> schemaWithoutPartitionKeys = new ArrayList<>();
+      for (String key : mapSchema.keySet()) {
+        String keyType = getPartitionKeyType(mapSchema, key);
+        Column column = new Column().withName(key).withType(keyType.toLowerCase()).withComment("");
+        // In Glue, the full schema should exclude the partition keys
+        if (syncConfig.partitionFields.contains(key)) {
+          schemaPartitionKeys.add(column);
+        } else {
+          schemaWithoutPartitionKeys.add(column);
+        }
+      }
 
       StorageDescriptor storageDescriptor = new StorageDescriptor();
       serdeProperties.put("serialization.format", "1");
       storageDescriptor
           .withSerdeInfo(new SerDeInfo().withSerializationLibrary(serdeClass).withParameters(serdeProperties))
-          .withLocation(s3aToS3(getBasePath()))
+          .withLocation(s3aToS3(syncConfig.basePath))
           .withInputFormat(inputFormatClass)
           .withOutputFormat(outputFormatClass)
           .withColumns(schemaWithoutPartitionKeys);
@@ -329,7 +315,7 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
   }
 
   @Override
-  public Map<String, String> getMetastoreSchema(String tableName) {
+  public Map<String, String> getTableSchema(String tableName) {
     try {
       // GlueMetastoreClient returns partition keys separate from Columns, hence get both and merge to
       // get the Schema of the table.
@@ -347,6 +333,11 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
     } catch (Exception e) {
       throw new HoodieGlueSyncException("Fail to get schema for table " + tableId(databaseName, tableName), e);
     }
+  }
+
+  @Override
+  public boolean doesTableExist(String tableName) {
+    return tableExists(tableName);
   }
 
   @Override
@@ -403,7 +394,7 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
   public Option<String> getLastCommitTimeSynced(String tableName) {
     try {
       Table table = getTable(awsGlue, databaseName, tableName);
-      return Option.ofNullable(table.getParameters().get(HOODIE_LAST_COMMIT_TIME_SYNC));
+      return Option.of(table.getParameters().getOrDefault(HOODIE_LAST_COMMIT_TIME_SYNC, null));
     } catch (Exception e) {
       throw new HoodieGlueSyncException("Fail to get last sync commit time for " + tableId(databaseName, tableName), e);
     }
@@ -416,11 +407,11 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
 
   @Override
   public void updateLastCommitTimeSynced(String tableName) {
-    if (!getActiveTimeline().lastInstant().isPresent()) {
+    if (!activeTimeline.lastInstant().isPresent()) {
       LOG.warn("No commit in active timeline.");
       return;
     }
-    final String lastCommitTimestamp = getActiveTimeline().lastInstant().get().getTimestamp();
+    final String lastCommitTimestamp = activeTimeline.lastInstant().get().getTimestamp();
     try {
       updateTableParameters(awsGlue, databaseName, tableName, Collections.singletonMap(HOODIE_LAST_COMMIT_TIME_SYNC, lastCommitTimestamp), false);
     } catch (Exception e) {
@@ -441,19 +432,6 @@ public class AWSGlueCatalogSyncClient extends HoodieSyncClient {
   @Override
   public void deleteLastReplicatedTimeStamp(String tableName) {
     throw new UnsupportedOperationException("Not supported: `deleteLastReplicatedTimeStamp`");
-  }
-
-  private List<Column> getColumnsFromSchema(Map<String, String> mapSchema) {
-    List<Column> cols = new ArrayList<>();
-    for (String key : mapSchema.keySet()) {
-      // In Glue, the full schema should exclude the partition keys
-      if (!config.getSplitStrings(META_SYNC_PARTITION_FIELDS).contains(key)) {
-        String keyType = getPartitionKeyType(mapSchema, key);
-        Column column = new Column().withName(key).withType(keyType.toLowerCase()).withComment("");
-        cols.add(column);
-      }
-    }
-    return cols;
   }
 
   private enum TableType {
